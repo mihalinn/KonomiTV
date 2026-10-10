@@ -92,6 +92,12 @@
                     <Icon icon="fluent:timer-16-regular" width="20px" height="20px" />
                     <span class="ml-1">予約を追加</span>
                 </v-btn>
+                <!-- [改造] 毎週録画ボタン: 番組名・チャンネル・曜日/時刻からキーワード自動予約条件を作る -->
+                <v-btn v-if="showWeeklyButton" class="px-3" color="primary" variant="tonal"
+                    :disabled="!isEDCBBackend" @click="openWeeklyDialog">
+                    <Icon icon="fluent:calendar-repeat-16-regular" width="20px" height="20px" />
+                    <span class="ml-1">毎週録画</span>
+                </v-btn>
             </div>
         </div>
         <!-- 過去番組の場合は閉じるボタンのみ表示 -->
@@ -182,6 +188,43 @@
             </v-card-actions>
         </v-card>
     </v-dialog>
+
+    <!-- [改造] 毎週録画ダイアログ -->
+    <v-dialog v-model="showWeeklyDialog" max-width="560">
+        <v-card>
+            <v-card-title class="d-flex justify-center pt-6 font-weight-bold">
+                毎週録画を登録
+            </v-card-title>
+            <v-card-text class="pt-2 pb-0">
+                <div class="text-body-2 text-text-darken-1 mb-4">
+                    {{ weeklyScheduleLabel }} に放送される、下のキーワードを含む番組を毎週自動で録画予約します。
+                </div>
+                <v-text-field v-model="weeklyKeyword" label="番組名キーワード" variant="outlined"
+                    density="comfortable" hide-details="auto" />
+                <v-text-field v-model.number="weeklyTimeToleranceMinutes" class="mt-4" type="number" min="0" max="180"
+                    label="放送時刻の許容幅 (前後の分)" variant="outlined" density="comfortable" hide-details="auto" />
+                <v-switch v-model="weeklyAnyChannel" class="mt-2" color="primary" hide-details density="comfortable"
+                    :label="`チャンネルを限定しない (オフ: ${weeklyChannelName} のみ)`" />
+                <v-switch v-model="weeklySkipAlreadyRecorded" color="primary" hide-details density="comfortable"
+                    label="すでに録画済みの同名番組は録画しない (再放送対策)" />
+                <div class="text-caption text-text-darken-1 mt-2">
+                    登録した条件は「キーワード自動予約」から編集・削除できます。
+                </div>
+            </v-card-text>
+            <v-card-actions class="pt-4 px-6 pb-6">
+                <v-spacer></v-spacer>
+                <v-btn color="text" variant="text" @click="showWeeklyDialog = false">
+                    <Icon icon="fluent:dismiss-20-regular" width="18px" height="18px" />
+                    <span class="ml-1">キャンセル</span>
+                </v-btn>
+                <v-btn class="px-3" color="secondary" variant="flat" :loading="isAddingWeekly"
+                    :disabled="weeklyKeyword.trim() === ''" @click="confirmWeekly">
+                    <Icon icon="fluent:calendar-repeat-16-regular" width="18px" height="18px" />
+                    <span class="ml-1">毎週録画を登録</span>
+                </v-btn>
+            </v-card-actions>
+        </v-card>
+    </v-dialog>
 </template>
 <script lang="ts" setup>
 
@@ -191,7 +234,8 @@ import ReservationProgramInfo from '@/components/Reservations/ReservationProgram
 import ReservationRecordingSettings from '@/components/Reservations/ReservationRecordingSettings.vue';
 import Message from '@/message';
 import { type IChannel } from '@/services/Channels';
-import { type IProgram } from '@/services/Programs';
+import { type IProgram, type IProgramSearchCondition } from '@/services/Programs';
+import ReservationConditions from '@/services/ReservationConditions';
 import Reservations, { type IReservation, type IRecordSettings, type IRecordSettingsPresets } from '@/services/Reservations';
 import useServerSettingsStore from '@/stores/ServerSettingsStore';
 import { ProgramUtils } from '@/utils';
@@ -280,6 +324,16 @@ const showSettingsTab = computed(() => hasReservation.value && !props.isPastProg
 // 予約追加ボタンを表示するかどうか
 // mock の予約がある場合 (実際には予約なし) かつ過去番組でない場合に表示
 const showAddButton = computed(() => isMockReservation.value && !props.isPastProgram);
+
+// [改造] 毎週録画ボタンを表示するかどうか
+// 未予約の番組、または手動予約のみの番組で表示する (キーワード自動予約・過去番組では非表示)
+const showWeeklyButton = computed(() => {
+    if (props.isPastProgram) return false;
+    if (displayProgram.value === null) return false;
+    if (isMockReservation.value) return true;
+    if (hasRealReservation.value && !(props.reservation?.comment.includes('EPG自動予約') ?? false)) return true;
+    return false;
+});
 
 // キーワード自動予約かどうか
 const isKeywordAutoReservation = computed(() => {
@@ -395,6 +449,128 @@ const confirmDelete = async () => {
         }
     } catch (error) {
         console.error('Failed to delete reservation:', error);
+    }
+};
+
+// ---- [改造] 毎週録画 ----
+
+const DAY_OF_WEEK_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+
+const showWeeklyDialog = ref(false);
+const isAddingWeekly = ref(false);
+const weeklyKeyword = ref('');
+const weeklyTimeToleranceMinutes = ref(15);
+const weeklyAnyChannel = ref(false);
+const weeklySkipAlreadyRecorded = ref(false);
+
+// 番組を放送するチャンネル (番組表経由なら props.channel、予約一覧経由なら予約に付属するチャンネル)
+const weeklyChannel = computed(() => props.channel ?? props.reservation?.channel ?? null);
+const weeklyChannelName = computed(() => weeklyChannel.value?.name ?? '指定チャンネル');
+
+// 番組の放送開始時刻から曜日・時・分を取り出す (ブラウザのタイムゾーンに依存しないよう文字列から直接パースする)
+const weeklyStart = computed(() => {
+    const m = displayProgram.value?.start_time.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    if (!m) return null;
+    const dayOfWeek = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();
+    return { dayOfWeek, hour: Number(m[4]), minute: Number(m[5]) };
+});
+
+const weeklyScheduleLabel = computed(() => {
+    if (!weeklyStart.value) return '';
+    const s = weeklyStart.value;
+    return `毎週${DAY_OF_WEEK_LABELS[s.dayOfWeek]}曜 ${String(s.hour).padStart(2, '0')}:${String(s.minute).padStart(2, '0')} ごろ`
+        + (weeklyAnyChannel.value ? '' : ` (${weeklyChannelName.value})`);
+});
+
+// 番組名から [新] [終] [字] などの装飾記号と「第N話」「#N」を取り除き、検索キーワードにする
+const makeWeeklyKeyword = (title: string): string => {
+    let t = title.normalize('NFKC');
+    // [新] [終] [字] [再] [デ] [解] [SS] [S] [二] [無] [生] [初] [前] [後] [多] [吹] [N] など、括弧内が短い装飾
+    t = t.replace(/[[【<＜(]\s*(新|終|字|再|デ|解|二|無|生|初|前|後|多|吹|映|声|手|SS|S|N|HV|STEREO)\s*[\]】>＞)]/gi, ' ');
+    // 「第N話」「#N」「▽」以降のサブタイトル
+    t = t.replace(/第\s*\d+\s*[話回夜章]/g, ' ').replace(/[#＃]\s*\d+/g, ' ');
+    t = t.replace(/[▽▼◇◆♯].*$/, ' ');
+    return t.replace(/\s+/g, ' ').trim();
+};
+
+const openWeeklyDialog = () => {
+    if (!displayProgram.value) return;
+    weeklyKeyword.value = makeWeeklyKeyword(displayProgram.value.title);
+    weeklyTimeToleranceMinutes.value = 15;
+    weeklyAnyChannel.value = false;
+    weeklySkipAlreadyRecorded.value = false;
+    showWeeklyDialog.value = true;
+};
+
+const confirmWeekly = async () => {
+    if (isAddingWeekly.value || !displayProgram.value || !weeklyStart.value) return;
+    const keyword = weeklyKeyword.value.trim();
+    if (keyword === '') return;
+
+    const channel = weeklyChannel.value;
+    if (!weeklyAnyChannel.value && (channel === null || channel.transport_stream_id === null)) {
+        Message.error('このチャンネルの情報が取得できなかったため、チャンネルを限定できません。');
+        return;
+    }
+
+    // 放送開始時刻 ± 許容幅 を「週の中の分」で表し、日をまたぐ場合も曜日を正しく進める
+    const tolerance = Math.min(Math.max(Math.floor(Number(weeklyTimeToleranceMinutes.value) || 0), 0), 180);
+    const WEEK_MINUTES = 7 * 24 * 60;
+    const startMinuteOfWeek = weeklyStart.value.dayOfWeek * 1440 + weeklyStart.value.hour * 60 + weeklyStart.value.minute;
+    const from = (startMinuteOfWeek - tolerance + WEEK_MINUTES) % WEEK_MINUTES;
+    const to = (startMinuteOfWeek + tolerance) % WEEK_MINUTES;
+    const decode = (v: number) => ({ dow: Math.floor(v / 1440), hour: Math.floor((v % 1440) / 60), minute: v % 60 });
+    const f = decode(from);
+    const t = decode(to);
+
+    const condition: IProgramSearchCondition = {
+        is_enabled: true,
+        keyword: keyword,
+        exclude_keyword: '',
+        note: '毎週録画',
+        is_title_only: true,
+        is_case_sensitive: false,
+        is_fuzzy_search_enabled: false,
+        is_regex_search_enabled: false,
+        service_ranges: weeklyAnyChannel.value || channel === null ? null : [{
+            network_id: channel.network_id,
+            transport_stream_id: channel.transport_stream_id ?? 0,
+            service_id: channel.service_id,
+        }],
+        genre_ranges: null,
+        is_exclude_genre_ranges: false,
+        date_ranges: [{
+            start_day_of_week: f.dow, start_hour: f.hour, start_minute: f.minute,
+            end_day_of_week: t.dow, end_hour: t.hour, end_minute: t.minute,
+        }],
+        is_exclude_date_ranges: false,
+        duration_range_min: null,
+        duration_range_max: null,
+        broadcast_type: 'All',
+        duplicate_title_check_scope: weeklySkipAlreadyRecorded.value ? 'AllChannels' : 'None',
+        duplicate_title_check_period_days: 6,
+    };
+
+    const recordSettings = currentSettings.value ?? props.reservation?.record_settings;
+    if (!recordSettings) {
+        Message.error('録画設定を取得できなかったため、毎週録画を登録できません。');
+        return;
+    }
+
+    isAddingWeekly.value = true;
+    try {
+        const success = await ReservationConditions.addReservationCondition(condition, recordSettings);
+        if (success) {
+            Message.success(`毎週録画を登録しました。(${weeklyScheduleLabel.value} / ${keyword})`);
+            showWeeklyDialog.value = false;
+            emit('added');
+            isVisible.value = false;
+        }
+    } catch (error) {
+        console.error('Failed to add weekly recording:', error);
+        Message.error('毎週録画の登録に失敗しました。');
+    } finally {
+        isAddingWeekly.value = false;
     }
 };
 
