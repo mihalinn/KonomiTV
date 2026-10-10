@@ -207,8 +207,13 @@
                     :label="`チャンネルを限定しない (オフ: ${weeklyChannelName} のみ)`" />
                 <v-switch v-model="weeklySkipAlreadyRecorded" color="primary" hide-details density="comfortable"
                     label="すでに録画済みの同名番組は録画しない (再放送対策)" />
-                <div class="text-caption text-text-darken-1 mt-2">
-                    登録した条件は「キーワード自動予約」から編集・削除できます。
+                <v-switch v-model="weeklySeriesFolder" color="primary" hide-details density="comfortable"
+                    label="番組名のフォルダを作って、そこに録画する (シリーズ別に自動で整理)" />
+                <v-text-field v-if="weeklySeriesFolder" v-model="weeklyBaseFolder" class="mt-2"
+                    label="録画先の親フォルダ" variant="outlined" density="comfortable" hide-details="auto"
+                    :hint="`保存先: ${weeklyFolderPreview}`" persistent-hint />
+                <div class="text-caption text-text-darken-1 mt-3">
+                    登録した条件は「毎週録画の管理」ページで編集・削除できます。
                 </div>
             </v-card-text>
             <v-card-actions class="pt-4 px-6 pb-6">
@@ -462,6 +467,24 @@ const weeklyKeyword = ref('');
 const weeklyTimeToleranceMinutes = ref(15);
 const weeklyAnyChannel = ref(false);
 const weeklySkipAlreadyRecorded = ref(false);
+const weeklySeriesFolder = ref(true);
+const weeklyBaseFolder = ref('');
+
+const WEEKLY_BASE_FOLDER_KEY = 'konomitv-custom-weekly-base-folder';
+const WEEKLY_DEFAULT_BASE_FOLDER = 'D:\\TV-Record';
+
+// フォルダ名に使えない文字を全角に置き換える (Windows 互換。シリーズ整理ツールと同じ規則)
+const makeFolderName = (name: string): string => {
+    const map: Record<string, string> = { '\\': '＼', '/': '／', ':': '：', '*': '＊', '?': '？', '"': '＂', '<': '＜', '>': '＞', '|': '｜' };
+    const replaced = Array.from(name).map((c) => map[c] ?? c).join('');
+    return replaced.replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '').slice(0, 60).replace(/[. ]+$/, '');
+};
+const weeklyFolderPath = computed(() => {
+    const folder = makeFolderName(weeklyKeyword.value);
+    const base = weeklyBaseFolder.value.trim().replace(/[\\/]+$/, '');
+    return folder === '' || base === '' ? '' : `${base}\\${folder}`;
+});
+const weeklyFolderPreview = computed(() => weeklyFolderPath.value || '(未設定)');
 
 // 番組を放送するチャンネル (番組表経由なら props.channel、予約一覧経由なら予約に付属するチャンネル)
 const weeklyChannel = computed(() => props.channel ?? props.reservation?.channel ?? null);
@@ -499,6 +522,16 @@ const openWeeklyDialog = () => {
     weeklyTimeToleranceMinutes.value = 15;
     weeklyAnyChannel.value = false;
     weeklySkipAlreadyRecorded.value = false;
+    weeklySeriesFolder.value = true;
+    // 親フォルダ: 現在の録画設定の保存先 → 前回入力した値 → 既定値 の順に採用する
+    let savedBase = '';
+    try {
+        savedBase = localStorage.getItem(WEEKLY_BASE_FOLDER_KEY) ?? '';
+    } catch {
+        // localStorage が使えない環境では無視
+    }
+    const presetFolder = (currentSettings.value ?? props.reservation?.record_settings)?.recording_folders?.[0]?.recording_folder_path;
+    weeklyBaseFolder.value = presetFolder || savedBase || WEEKLY_DEFAULT_BASE_FOLDER;
     showWeeklyDialog.value = true;
 };
 
@@ -551,10 +584,31 @@ const confirmWeekly = async () => {
         duplicate_title_check_period_days: 6,
     };
 
-    const recordSettings = currentSettings.value ?? props.reservation?.record_settings;
-    if (!recordSettings) {
+    const baseSettings = currentSettings.value ?? props.reservation?.record_settings;
+    if (!baseSettings) {
         Message.error('録画設定を取得できなかったため、毎週録画を登録できません。');
         return;
+    }
+    let recordSettings = baseSettings;
+    if (weeklySeriesFolder.value) {
+        if (weeklyFolderPath.value === '') {
+            Message.error('録画先の親フォルダを入力してください。');
+            return;
+        }
+        try {
+            localStorage.setItem(WEEKLY_BASE_FOLDER_KEY, weeklyBaseFolder.value.trim());
+        } catch {
+            // 保存できなくても登録は続行する
+        }
+        const firstFolder = baseSettings.recording_folders?.[0];
+        recordSettings = {
+            ...baseSettings,
+            recording_folders: [{
+                recording_folder_path: weeklyFolderPath.value,
+                recording_file_name_template: firstFolder?.recording_file_name_template ?? null,
+                is_oneseg_separate_recording_folder: firstFolder?.is_oneseg_separate_recording_folder ?? false,
+            }],
+        };
     }
 
     isAddingWeekly.value = true;
