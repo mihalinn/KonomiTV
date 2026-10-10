@@ -10,6 +10,14 @@
                         { name: 'ホーム', path: '/' },
                         { name: '録画予約', path: '/reservations/', disabled: true },
                     ]" />
+                    <!-- [改造] 毎週録画 (キーワード自動予約) の管理ページへのリンク -->
+                    <div class="reservations-home-container__conditions-link">
+                        <v-btn variant="tonal" color="primary" @click="$router.push('/reservations/conditions')">
+                            <Icon icon="fluent:calendar-repeat-16-regular" width="20px" height="20px" />
+                            <span class="ml-2">毎週録画 (キーワード自動予約) の管理</span>
+                            <Icon icon="fluent:chevron-right-12-regular" width="18px" class="ml-1" />
+                        </v-btn>
+                    </div>
                     <!-- 放送が近い録画予約セクション -->
                     <ReservationList
                         class="reservations-home-container__upcoming-reservations"
@@ -183,6 +191,11 @@ onUnmounted(() => {
 
 
 
+
+    &__conditions-link {
+        display: flex;
+        margin-bottom: 16px;
+    }
 
     &__upcoming-reservations--loading,
     &__recently-finished-reservations--loading,
