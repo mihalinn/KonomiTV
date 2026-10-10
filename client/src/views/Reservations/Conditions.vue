@@ -62,6 +62,11 @@
                                     :loading="busyIds.has(condition.id)" :disabled="busyIds.has(condition.id)"
                                     :label="condition.program_search_condition.is_enabled ? '有効' : '無効'"
                                     @update:model-value="toggleEnabled(condition, $event === true)" />
+                                <v-btn variant="text" color="primary" class="px-2" :disabled="busyIds.has(condition.id)"
+                                    @click="openEdit(condition)">
+                                    <Icon icon="fluent:edit-16-regular" width="20px" height="20px" />
+                                    <span class="ml-1">編集</span>
+                                </v-btn>
                                 <v-btn variant="text" color="error" class="px-2" :disabled="busyIds.has(condition.id)"
                                     @click="deleteTarget = condition">
                                     <Icon icon="fluent:delete-16-regular" width="20px" height="20px" />
@@ -73,6 +78,72 @@
                 </div>
             </div>
         </main>
+
+        <!-- 簡易編集ダイアログ -->
+        <v-dialog :model-value="editTarget !== null" max-width="600" @update:model-value="editTarget = null">
+            <v-card v-if="editTarget">
+                <v-card-title class="d-flex justify-center pt-6 font-weight-bold">
+                    毎週録画の編集
+                </v-card-title>
+                <v-card-text class="pt-2 pb-0">
+                    <v-text-field v-model="form.keyword" label="番組名キーワード" variant="outlined"
+                        density="comfortable" hide-details="auto" />
+                    <v-text-field v-model="form.excludeKeyword" class="mt-4" label="除外キーワード (任意)" variant="outlined"
+                        density="comfortable" hide-details="auto" />
+
+                    <!-- チャンネル -->
+                    <v-select v-if="form.channelEditable" v-model="form.channelKey" class="mt-4" label="チャンネル"
+                        :items="channelItems" item-title="title" item-value="value" variant="outlined"
+                        density="comfortable" hide-details="auto" />
+                    <div v-else class="text-body-2 text-text-darken-1 mt-4">
+                        チャンネル: {{ formatChannels(editTarget) }} (複数指定のため、ここでは変更できません)
+                    </div>
+
+                    <!-- 曜日・時間帯 -->
+                    <template v-if="form.timeEditable">
+                        <v-switch v-model="form.anyTime" class="mt-2" color="primary" hide-details density="comfortable"
+                            label="曜日・時間帯を指定しない (毎日・全時間帯)" />
+                        <div v-if="!form.anyTime" class="condition-edit__time-row">
+                            <v-select v-model="form.dayOfWeek" label="曜日" :items="dayItems" item-title="title"
+                                item-value="value" variant="outlined" density="comfortable" hide-details />
+                            <v-text-field v-model="form.startTime" type="time" label="この時刻から" variant="outlined"
+                                density="comfortable" hide-details />
+                            <v-text-field v-model="form.endTime" type="time" label="この時刻まで" variant="outlined"
+                                density="comfortable" hide-details />
+                        </div>
+                        <div v-if="!form.anyTime" class="text-caption text-text-darken-1 mt-1">
+                            番組の「放送開始時刻」がこの範囲に入るものが対象です。終了が開始より早い場合は翌日の時刻として扱います。
+                        </div>
+                    </template>
+                    <div v-else class="text-body-2 text-text-darken-1 mt-2">
+                        時間帯: {{ formatDateRanges(editTarget) }} (複雑な指定のため、ここでは変更できません)
+                    </div>
+
+                    <v-select v-model="form.duplicateScope" class="mt-4" label="録画済みの同名番組" :items="duplicateItems"
+                        item-title="title" item-value="value" variant="outlined" density="comfortable"
+                        hide-details="auto" />
+
+                    <!-- 保存先フォルダ -->
+                    <v-text-field v-if="form.folderEditable" v-model="form.folderPath" class="mt-4"
+                        label="録画フォルダ (空欄でデフォルト)" variant="outlined" density="comfortable" hide-details="auto"
+                        placeholder="例: D:\TV-Record\番組名" />
+                    <div v-else class="text-body-2 text-text-darken-1 mt-4">
+                        録画フォルダが複数指定されているため、ここでは変更できません。
+                    </div>
+                    <v-text-field v-model="form.note" class="mt-4" label="メモ (任意)" variant="outlined"
+                        density="comfortable" hide-details="auto" />
+                </v-card-text>
+                <v-card-actions class="pt-4 px-6 pb-6">
+                    <v-spacer></v-spacer>
+                    <v-btn color="text" variant="text" @click="editTarget = null">キャンセル</v-btn>
+                    <v-btn class="px-3" color="secondary" variant="flat" :loading="isSaving"
+                        :disabled="form.keyword.trim() === ''" @click="saveEdit">
+                        <Icon icon="fluent:save-16-regular" width="18px" height="18px" />
+                        <span class="ml-1">保存</span>
+                    </v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
 
         <v-dialog :model-value="deleteTarget !== null" max-width="520" @update:model-value="deleteTarget = null">
             <v-card v-if="deleteTarget">
@@ -103,7 +174,7 @@
 </template>
 <script lang="ts" setup>
 
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, toRaw } from 'vue';
 
 import Breadcrumbs from '@/components/Breadcrumbs.vue';
 import HeaderBar from '@/components/HeaderBar.vue';
@@ -111,6 +182,7 @@ import Navigation from '@/components/Navigation.vue';
 import SPHeaderBar from '@/components/SPHeaderBar.vue';
 import Message from '@/message';
 import Channels from '@/services/Channels';
+import { type IProgramSearchCondition } from '@/services/Programs';
 import ReservationConditions, { type IReservationCondition } from '@/services/ReservationConditions';
 
 const DAY_OF_WEEK_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -123,6 +195,7 @@ const isDeleting = ref(false);
 
 // "network_id:service_id" -> チャンネル名
 const channelNames = ref<Map<string, string>>(new Map());
+const baseChannelItems = ref<{ title: string; value: string }[]>([]);
 
 const fetchAll = async () => {
     const [result, channels] = await Promise.all([
@@ -131,12 +204,20 @@ const fetchAll = async () => {
     ]);
     if (channels) {
         const map = new Map<string, string>();
+        const items: { title: string; value: string }[] = [];
         for (const list of Object.values(channels)) {
             for (const channel of list) {
                 map.set(`${channel.network_id}:${channel.service_id}`, channel.name);
+                if (channel.transport_stream_id !== null) {
+                    items.push({
+                        title: channel.name,
+                        value: `${channel.network_id}:${channel.transport_stream_id}:${channel.service_id}`,
+                    });
+                }
             }
         }
         channelNames.value = map;
+        baseChannelItems.value = items;
     }
     if (result) {
         conditions.value = result.reservation_conditions;
@@ -165,6 +246,160 @@ const formatChannels = (condition: IReservationCondition): string => {
     const names = services.map((s) => channelNames.value.get(`${s.network_id}:${s.service_id}`) ?? `SID ${s.service_id}`);
     if (names.length <= 3) return names.join('、');
     return `${names.length}チャンネル`;
+};
+
+// ---- 簡易編集 ----
+
+const dayItems = DAY_OF_WEEK_LABELS.map((label, value) => ({ title: `${label}曜日`, value }));
+const duplicateItems = [
+    { title: '気にせず録画する', value: 'None' },
+    { title: '同じチャンネルで録画済みならスキップ', value: 'SameChannelOnly' },
+    { title: 'どのチャンネルでも録画済みならスキップ', value: 'AllChannels' },
+];
+
+const editTarget = ref<IReservationCondition | null>(null);
+const isSaving = ref(false);
+const channelItems = ref<{ title: string; value: string }[]>([]);
+
+const form = ref({
+    keyword: '',
+    excludeKeyword: '',
+    note: '',
+    channelEditable: true,
+    channelKey: '',
+    timeEditable: true,
+    anyTime: false,
+    dayOfWeek: 0,
+    startTime: '00:00',
+    endTime: '00:00',
+    duplicateScope: 'None' as 'None' | 'SameChannelOnly' | 'AllChannels',
+    folderEditable: true,
+    folderPath: '',
+});
+
+const serviceKey = (nid: number, tsid: number, sid: number) => `${nid}:${tsid}:${sid}`;
+
+const openEdit = (condition: IReservationCondition) => {
+    const c = condition.program_search_condition;
+    const f = form.value;
+    f.keyword = c.keyword;
+    f.excludeKeyword = c.exclude_keyword;
+    f.note = c.note;
+    f.duplicateScope = c.duplicate_title_check_scope;
+
+    // チャンネル: 0件=全チャンネル扱い / 1件=選択可 / 2件以上=変更不可
+    const services = c.service_ranges;
+    f.channelEditable = services === null || services.length <= 1;
+    f.channelKey = services !== null && services.length === 1
+        ? serviceKey(services[0].network_id, services[0].transport_stream_id, services[0].service_id)
+        : 'ALL';
+    // 選択肢に現在のチャンネルが無ければ補う
+    const items = [{ title: '全チャンネル', value: 'ALL' }, ...baseChannelItems.value];
+    if (services !== null && services.length === 1 && !items.some((i) => i.value === f.channelKey)) {
+        items.push({ title: formatChannels(condition), value: f.channelKey });
+    }
+    channelItems.value = items;
+
+    // 時間帯: 指定なし / 1件(同じ曜日 or 翌日にまたぐ)なら編集可 / それ以外は変更不可
+    const ranges = c.date_ranges;
+    if (ranges === null || ranges.length === 0) {
+        f.timeEditable = true;
+        f.anyTime = true;
+        f.dayOfWeek = 0;
+        f.startTime = '00:00';
+        f.endTime = '00:00';
+    } else if (ranges.length === 1 && !c.is_exclude_date_ranges
+        && (ranges[0].end_day_of_week === ranges[0].start_day_of_week
+            || ranges[0].end_day_of_week === (ranges[0].start_day_of_week + 1) % 7)) {
+        const r = ranges[0];
+        f.timeEditable = true;
+        f.anyTime = false;
+        f.dayOfWeek = r.start_day_of_week;
+        f.startTime = `${pad(r.start_hour)}:${pad(r.start_minute)}`;
+        f.endTime = `${pad(r.end_hour)}:${pad(r.end_minute)}`;
+    } else {
+        f.timeEditable = false;
+    }
+
+    // 録画フォルダ: 0件 or 1件なら編集可
+    const folders = condition.record_settings.recording_folders;
+    f.folderEditable = folders.length <= 1;
+    f.folderPath = folders.length === 1 ? folders[0].recording_folder_path : '';
+
+    editTarget.value = condition;
+};
+
+const saveEdit = async () => {
+    const target = editTarget.value;
+    if (!target || isSaving.value) return;
+    const f = form.value;
+    const keyword = f.keyword.trim();
+    if (keyword === '') return;
+
+    const condition: IProgramSearchCondition = {
+        ...target.program_search_condition,
+        keyword,
+        exclude_keyword: f.excludeKeyword.trim(),
+        note: f.note.trim(),
+        duplicate_title_check_scope: f.duplicateScope,
+    };
+
+    if (f.channelEditable) {
+        if (f.channelKey === 'ALL') {
+            condition.service_ranges = null;
+        } else {
+            const [nid, tsid, sid] = f.channelKey.split(':').map(Number);
+            condition.service_ranges = [{ network_id: nid, transport_stream_id: tsid, service_id: sid }];
+        }
+    }
+
+    if (f.timeEditable) {
+        if (f.anyTime) {
+            condition.date_ranges = null;
+        } else {
+            const [sh, sm] = f.startTime.split(':').map(Number);
+            const [eh, em] = f.endTime.split(':').map(Number);
+            if ([sh, sm, eh, em].some((n) => Number.isNaN(n))) {
+                Message.error('時刻を正しく入力してください。');
+                return;
+            }
+            const crossesMidnight = eh * 60 + em < sh * 60 + sm;
+            condition.date_ranges = [{
+                start_day_of_week: f.dayOfWeek, start_hour: sh, start_minute: sm,
+                end_day_of_week: crossesMidnight ? (f.dayOfWeek + 1) % 7 : f.dayOfWeek, end_hour: eh, end_minute: em,
+            }];
+            condition.is_exclude_date_ranges = false;
+        }
+    }
+
+    const recordSettings = JSON.parse(JSON.stringify(toRaw(target.record_settings))) as typeof target.record_settings;
+    if (f.folderEditable) {
+        const path = f.folderPath.trim();
+        if (path === '') {
+            recordSettings.recording_folders = [];
+        } else if (recordSettings.recording_folders.length === 1) {
+            recordSettings.recording_folders[0].recording_folder_path = path;
+        } else {
+            recordSettings.recording_folders = [{
+                recording_folder_path: path,
+                recording_file_name_template: null,
+                is_oneseg_separate_recording_folder: false,
+            }];
+        }
+    }
+
+    isSaving.value = true;
+    try {
+        const updated = await ReservationConditions.updateReservationCondition(target.id, condition, recordSettings);
+        if (updated) {
+            const index = conditions.value.findIndex((x) => x.id === target.id);
+            if (index !== -1) conditions.value[index] = updated;
+            Message.success('毎週録画の条件を更新しました。');
+            editTarget.value = null;
+        }
+    } finally {
+        isSaving.value = false;
+    }
 };
 
 const toggleEnabled = async (condition: IReservationCondition, enabled: boolean) => {
@@ -378,4 +613,14 @@ onMounted(fetchAll);
     }
 }
 
+.condition-edit__time-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-top: 12px;
+
+    @include smartphone-vertical {
+        grid-template-columns: 1fr;
+    }
+}
 </style>
