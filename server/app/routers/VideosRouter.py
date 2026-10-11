@@ -26,6 +26,7 @@ from app import logging, schemas
 from app.constants import STATIC_DIR, THUMBNAILS_DIR
 from app.metadata.RecordedScanTask import RecordedScanTask, RecordedVideoMoveError
 from app.metadata.ThumbnailGenerator import ThumbnailGenerator
+from app.metadata.VideoImporter import VideoImporter, VideoImportError
 from app.metadata.TSInfoAnalyzer import TSInfoAnalyzer
 from app.models.RecordedProgram import RecordedProgram
 from app.models.User import User
@@ -674,6 +675,136 @@ async def VideosSearchAPI(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail='Failed to execute raw SQL query',
         )
+
+
+# ---- [改造: 動画ファイルのアップロード取り込み] ここから ----
+
+IMPORT_ERROR_STATUS = {
+    'NotFound': status.HTTP_404_NOT_FOUND,
+    'Invalid': status.HTTP_400_BAD_REQUEST,
+    'Conflict': status.HTTP_409_CONFLICT,
+    'Failed': status.HTTP_500_INTERNAL_SERVER_ERROR,
+}
+
+
+def RaiseImportError(ex: VideoImportError) -> None:
+    raise HTTPException(
+        status_code = IMPORT_ERROR_STATUS.get(ex.kind, status.HTTP_500_INTERNAL_SERVER_ERROR),
+        detail = ex.message,
+    )
+
+
+@router.get(
+    '/imports',
+    summary = '動画取り込みジョブ一覧 API',
+    response_description = 'アップロード・変換中および直近に完了した取り込みジョブの一覧。',
+    response_model = schemas.VideoImportJobs,
+)
+async def VideoImportListAPI(
+    current_user: Annotated[User, Depends(GetCurrentAdminUser)],
+):
+    """
+    動画取り込みジョブの一覧を取得する。管理者アカウントでないとアクセスできない。
+    """
+
+    return schemas.VideoImportJobs(jobs=[schemas.VideoImportJob(**job) for job in VideoImporter().listJobs()])
+
+
+@router.post(
+    '/imports',
+    summary = '動画取り込みジョブ作成 API',
+    response_description = '作成された取り込みジョブ。',
+    response_model = schemas.VideoImportJob,
+)
+async def VideoImportCreateAPI(
+    import_request: schemas.VideoImportCreateRequest,
+    current_user: Annotated[User, Depends(GetCurrentAdminUser)],
+):
+    """
+    アップロードする動画ファイルの取り込みジョブを作成する。
+    作成後、PUT /imports/{import_id}/chunk でデータを順番に送信し、POST /imports/{import_id}/complete で完了させる。
+    管理者アカウントでないとアクセスできない。
+    """
+
+    try:
+        job = VideoImporter().createJob(
+            filename = import_request.filename,
+            size = import_request.size,
+            folder = import_request.folder,
+            title = import_request.title,
+            start_date = import_request.start_date,
+            quality = import_request.quality,
+        )
+    except VideoImportError as ex:
+        RaiseImportError(ex)
+    return schemas.VideoImportJob(**job)
+
+
+@router.put(
+    '/imports/{import_id}/chunk',
+    summary = '動画取り込みデータ送信 API',
+    response_description = '更新された取り込みジョブ。',
+    response_model = schemas.VideoImportJob,
+)
+async def VideoImportChunkAPI(
+    request: Request,
+    import_id: Annotated[str, Path(description='取り込みジョブの ID。')],
+    offset: Annotated[int, Query(ge=0, description='このチャンクの先頭が元ファイルの何バイト目か。')],
+    current_user: Annotated[User, Depends(GetCurrentAdminUser)],
+):
+    """
+    動画ファイルのデータの一部 (リクエストボディ) を受信する。offset は受信済みのバイト数と一致している必要がある。
+    管理者アカウントでないとアクセスできない。
+    """
+
+    try:
+        job = await VideoImporter().writeChunk(import_id, offset, request.stream())
+    except VideoImportError as ex:
+        RaiseImportError(ex)
+    return schemas.VideoImportJob(**job)
+
+
+@router.post(
+    '/imports/{import_id}/complete',
+    summary = '動画取り込みアップロード完了 API',
+    response_description = '更新された取り込みジョブ。',
+    response_model = schemas.VideoImportJob,
+)
+async def VideoImportCompleteAPI(
+    import_id: Annotated[str, Path(description='取り込みジョブの ID。')],
+    current_user: Annotated[User, Depends(GetCurrentAdminUser)],
+):
+    """
+    全データの送信が終わったことを通知し、変換・配置の待ち行列に入れる。管理者アカウントでないとアクセスできない。
+    """
+
+    try:
+        job = VideoImporter().completeUpload(import_id)
+    except VideoImportError as ex:
+        RaiseImportError(ex)
+    return schemas.VideoImportJob(**job)
+
+
+@router.delete(
+    '/imports/{import_id}',
+    summary = '動画取り込みジョブ取り消し API',
+    status_code = status.HTTP_204_NO_CONTENT,
+)
+async def VideoImportDeleteAPI(
+    import_id: Annotated[str, Path(description='取り込みジョブの ID。')],
+    current_user: Annotated[User, Depends(GetCurrentAdminUser)],
+):
+    """
+    取り込みジョブを取り消す (変換中なら中止する) 。完了・失敗したジョブは一覧から消す。管理者アカウントでないとアクセスできない。
+    """
+
+    try:
+        VideoImporter().deleteJob(import_id)
+    except VideoImportError as ex:
+        RaiseImportError(ex)
+
+
+# ---- [改造: 動画ファイルのアップロード取り込み] ここまで ----
 
 
 @router.get(

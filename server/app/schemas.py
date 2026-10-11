@@ -784,3 +784,34 @@ class VideoFolder(BaseModel):
 
 class VideoFolders(BaseModel):
     folders: list[VideoFolder]
+
+
+# ***** [改造] 動画ファイルのアップロード取り込み *****
+
+class VideoImportCreateRequest(BaseModel):
+    filename: str  # 元のファイル名 (拡張子の判定に使う)
+    size: int  # ファイルサイズ (バイト)
+    folder: str  # 追加先フォルダ名 (録画フォルダ直下の 1 階層)
+    title: str  # 番組タイトル (= 保存時のファイル名)
+    start_date: str | None = None  # 放送日時 (ISO 8601 / タイムゾーンなしは JST として扱う)
+    quality: Literal['quality', 'fast'] = 'quality'  # 変換方式 (quality: CPU 高画質 / fast: GPU 高速)
+
+class VideoImportJob(BaseModel):
+    id: str
+    filename: str
+    size: int
+    received: int
+    folder: str
+    title: str
+    start_date: str | None
+    quality: Literal['quality', 'fast']
+    status: Literal['uploading', 'queued', 'converting', 'done', 'failed']
+    progress: int
+    message: str
+    plan: Literal['copy', 'audio', 'transcode'] | None
+    dest_path: str | None
+    created_at: float
+    updated_at: float
+
+class VideoImportJobs(BaseModel):
+    jobs: list[VideoImportJob]

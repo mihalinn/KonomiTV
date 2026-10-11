@@ -3,6 +3,25 @@ import APIClient from  '@/services/APIClient';
 import { IChannel } from '@/services/Channels';
 import { CommentUtils } from '@/utils';
 
+/** [改造] 動画ファイルの取り込みジョブを表すインターフェース */
+export interface IVideoImportJob {
+    id: string;
+    filename: string;
+    size: number;
+    received: number;
+    folder: string;
+    title: string;
+    start_date: string | null;
+    quality: 'quality' | 'fast';
+    status: 'uploading' | 'queued' | 'converting' | 'done' | 'failed';
+    progress: number;
+    message: string;
+    plan: 'copy' | 'audio' | 'transcode' | null;
+    dest_path: string | null;
+    created_at: number;
+    updated_at: number;
+}
+
 /** ソート順序を表す型 */
 export type SortOrder = 'desc' | 'asc';
 
@@ -406,6 +425,106 @@ class Videos {
         if (response.type === 'error') {
             const detail = response.data.detail;
             return typeof detail === 'string' && detail !== '' ? detail : '移動に失敗しました。';
+        }
+
+        return null;
+    }
+
+    /**
+     * [改造] 動画取り込みジョブの一覧を取得する (管理者のみ)
+     * @returns ジョブの一覧。失敗した場合は null
+     */
+    static async fetchImports(): Promise<IVideoImportJob[] | null> {
+
+        const response = await APIClient.get<{ jobs: IVideoImportJob[] }>('/videos/imports');
+
+        if (response.type === 'error') {
+            return null;
+        }
+
+        return response.data.jobs;
+    }
+
+
+    /**
+     * [改造] 動画の取り込みジョブを作成する (管理者のみ)
+     * @returns 作成したジョブ、またはエラーメッセージ
+     */
+    static async createImport(params: {
+        filename: string;
+        size: number;
+        folder: string;
+        title: string;
+        start_date: string | null;
+        quality: 'quality' | 'fast';
+    }): Promise<{ job: IVideoImportJob | null; error: string | null }> {
+
+        const response = await APIClient.post<IVideoImportJob>('/videos/imports', params);
+
+        if (response.type === 'error') {
+            const detail = response.data.detail;
+            return { job: null, error: typeof detail === 'string' && detail !== '' ? detail : '取り込みを開始できませんでした。' };
+        }
+
+        return { job: response.data, error: null };
+    }
+
+
+    /**
+     * [改造] 動画データの一部を送信する (管理者のみ)
+     * @returns 更新されたジョブ、またはエラー (status が 409 なら位置のずれ・404 ならジョブが消えている)
+     */
+    static async uploadImportChunk(
+        import_id: string, offset: number, chunk: Blob, onProgress?: (loaded: number) => void,
+    ): Promise<{ job: IVideoImportJob | null; error: string | null; status: number }> {
+
+        const response = await APIClient.put<IVideoImportJob>(`/videos/imports/${import_id}/chunk?offset=${offset}`, chunk, {
+            headers: { 'Content-Type': 'application/octet-stream' },
+            timeout: 10 * 60 * 1000,
+            onUploadProgress: (event) => onProgress?.(event.loaded),
+        });
+
+        if (response.type === 'error') {
+            const detail = response.data?.detail;
+            return {
+                job: null,
+                error: typeof detail === 'string' && detail !== '' ? detail : '送信に失敗しました。',
+                status: response.status,
+            };
+        }
+
+        return { job: response.data, error: null, status: response.status };
+    }
+
+
+    /**
+     * [改造] 動画データの送信完了を通知する (管理者のみ)
+     * @returns 成功した場合は null 、失敗した場合はエラーメッセージ
+     */
+    static async completeImport(import_id: string): Promise<string | null> {
+
+        const response = await APIClient.post(`/videos/imports/${import_id}/complete`);
+
+        if (response.type === 'error') {
+            const detail = response.data.detail;
+            return typeof detail === 'string' && detail !== '' ? detail : '完了の通知に失敗しました。';
+        }
+
+        return null;
+    }
+
+
+    /**
+     * [改造] 動画の取り込みジョブを取り消す・一覧から消す (管理者のみ)
+     * @returns 成功した場合は null 、失敗した場合はエラーメッセージ
+     */
+    static async deleteImport(import_id: string): Promise<string | null> {
+
+        const response = await APIClient.delete(`/videos/imports/${import_id}`);
+
+        if (response.type === 'error') {
+            const detail = response.data.detail;
+            return typeof detail === 'string' && detail !== '' ? detail : '取り消しに失敗しました。';
         }
 
         return null;
