@@ -242,6 +242,7 @@ import { type IChannel } from '@/services/Channels';
 import { type IProgram, type IProgramSearchCondition } from '@/services/Programs';
 import ReservationConditions from '@/services/ReservationConditions';
 import Reservations, { type IReservation, type IRecordSettings, type IRecordSettingsPresets } from '@/services/Reservations';
+import { makeSeriesTitle } from '@/services/SeriesTitle';
 import useServerSettingsStore from '@/stores/ServerSettingsStore';
 import { ProgramUtils } from '@/utils';
 
@@ -518,7 +519,7 @@ const makeWeeklyKeyword = (title: string): string => {
 
 const openWeeklyDialog = () => {
     if (!displayProgram.value) return;
-    weeklyKeyword.value = makeWeeklyKeyword(displayProgram.value.title);
+    weeklyKeyword.value = makeSeriesTitle(displayProgram.value.title) || makeWeeklyKeyword(displayProgram.value.title);
     weeklyTimeToleranceMinutes.value = 15;
     weeklyAnyChannel.value = false;
     weeklySkipAlreadyRecorded.value = false;
