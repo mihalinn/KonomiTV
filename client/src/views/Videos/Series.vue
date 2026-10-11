@@ -97,16 +97,30 @@
             </v-card-title>
             <v-card-text class="pt-2 pb-0">
                 <div class="text-body-2 text-text-darken-1 mb-3">
-                    移動先のフォルダを選ぶか、新しいフォルダ名を入力してください。録画の情報・サムネイルはそのまま引き継がれます。
+                    フォルダ名を入力すると、近い既存のフォルダが下に出ます。選ぶか、そのまま新しい名前で作成できます。録画の情報・サムネイルはそのまま引き継がれます。
                 </div>
-                <v-select v-model="moveExisting" :items="folderOptions" label="既存のフォルダから選ぶ" variant="outlined"
-                    density="comfortable" hide-details clearable :disabled="moving" @update:model-value="onExistingSelected" />
-                <v-text-field v-model="moveNewName" class="mt-3" label="または 新しいフォルダ名" variant="outlined"
-                    density="comfortable" hide-details="auto" :counter="60" :disabled="moving"
-                    :error-messages="moveNameError" @update:model-value="moveExisting = null" />
+                <v-text-field v-model="moveNewName" label="フォルダ名 (入力で絞り込み・なければ新規作成)" variant="outlined"
+                    density="comfortable" hide-details="auto" :counter="60" :disabled="moving" clearable
+                    :error-messages="moveNameError" />
                 <div class="text-body-2 mt-3" v-if="moveTargetName !== ''">
                     移動先: <b>{{moveTargetName}}</b>
-                    <span class="text-text-darken-1" v-if="moveIsNewFolder">(新規作成)</span>
+                    <span class="text-text-darken-1">{{moveIsNewFolder ? '(新規作成)' : '(既存のフォルダ)'}}</span>
+                </div>
+                <div class="folder-candidates mt-3">
+                    <div class="folder-candidates__label">
+                        {{moveTargetName === '' ? '既存のフォルダ' : '近い既存のフォルダ'}} ({{folderCandidates.length}}件)
+                    </div>
+                    <div class="folder-candidates__empty" v-if="folderCandidates.length === 0">
+                        {{moveTargetName === '' ? '既存のフォルダはありません。' : '近い既存のフォルダはありません。この名前で新しく作成します。'}}
+                    </div>
+                    <div class="folder-candidates__list" v-else>
+                        <button type="button" v-for="name in folderCandidates" :key="name" class="folder-candidates__item"
+                            :class="{'folder-candidates__item--on': name === moveTargetName}" :disabled="moving"
+                            @click="moveNewName = name">
+                            <Icon icon="fluent:folder-20-regular" width="18px" height="18px" />
+                            <span>{{name}}</span>
+                        </button>
+                    </div>
                 </div>
                 <div class="move-progress mt-3" v-if="moving || moveFailures.length > 0">
                     <div v-if="moving">移動中… {{moveDone}} / {{moveTotal}}</div>
@@ -315,10 +329,7 @@ const moveDone = ref(0);
 const moveTotal = ref(0);
 const moveFailures = ref<{ id: number; title: string; message: string }[]>([]);
 const existingFolders = ref<string[]>([]);
-const moveExisting = ref<string | null>(null);
 const moveNewName = ref('');
-
-const folderOptions = computed(() => existingFolders.value);
 
 // フォルダ名に使えない文字 (サーバー側の検証と同じ: \ / : * ? " < > | と制御文字)
 const INVALID_FOLDER_CHARS = '\\/:*?"<>|';
@@ -332,35 +343,50 @@ const suggestFolderName = (): string => {
     return Array.from(name).map(c => hasInvalidFolderChar(c) ? ' ' : c).join('').replace(/\s+/g, ' ').trim().replace(/\.+$/, '').slice(0, 60).trim();
 };
 
-const moveTargetName = computed(() => (moveExisting.value ?? moveNewName.value).trim());
-const moveIsNewFolder = computed(() => moveExisting.value === null && moveTargetName.value !== '' && !existingFolders.value.includes(moveTargetName.value));
+const moveTargetName = computed(() => moveNewName.value.trim());
+const moveIsNewFolder = computed(() => moveTargetName.value !== '' && !existingFolders.value.includes(moveTargetName.value));
 
 const moveNameError = computed(() => {
-    if (moveExisting.value !== null) return '';
-    const name = moveNewName.value;
+    const name = moveTargetName.value;
     if (name === '') return '';
-    if (name !== name.trim()) return '前後の空白は使えません。';
     if (name.length > 60) return '60文字までです。';
     if (Array.from(name).some(hasInvalidFolderChar)) return '使えない文字が含まれています。(\\ / : * ? " < > |)';
     if (name === '.' || name === '..' || name.endsWith('.')) return '末尾にドットは使えません。';
     return '';
 });
 
-const onExistingSelected = () => {
-    if (moveExisting.value !== null) moveNewName.value = '';
-};
+// 既存フォルダの検索用に表記ゆれ (全角半角・大文字小文字・カタカナ/ひらがな・空白記号) をならす
+const normalizeForSearch = (s: string): string => Array.from(s.normalize('NFKC').toLowerCase())
+    .map(c => {
+        const code = c.charCodeAt(0);
+        return code >= 0x30a1 && code <= 0x30f6 ? String.fromCharCode(code - 0x60) : c;
+    })
+    .join('')
+    .replace(/[\s・!?~〜]/g, '');
+
+// 入力名に近い既存フォルダ (完全一致 → 前方一致 → 部分一致の順)。入力が空なら全件
+const folderCandidates = computed(() => {
+    const q = normalizeForSearch(moveNewName.value);
+    const scored: { name: string; rank: number }[] = [];
+    for (const name of existingFolders.value) {
+        const n = normalizeForSearch(name);
+        let rank = -1;
+        if (q === '') rank = 3;
+        else if (n === '') rank = -1;
+        else if (n === q) rank = 0;
+        else if (n.startsWith(q) || q.startsWith(n)) rank = 1;
+        else if (n.includes(q) || (n.length >= 2 && q.includes(n))) rank = 2;
+        if (rank >= 0) scored.push({ name, rank });
+    }
+    scored.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name, 'ja'));
+    return scored.map(s => s.name);
+});
 
 const openMoveDialog = async () => {
     moveFailures.value = [];
-    moveExisting.value = null;
     moveNewName.value = suggestFolderName();
     const result = await Videos.fetchFolders();
     existingFolders.value = result ? result.map(f => f.name) : [];
-    // 提案名が既存フォルダと一致していれば、既存フォルダ選択にする
-    if (existingFolders.value.includes(moveNewName.value)) {
-        moveExisting.value = moveNewName.value;
-        moveNewName.value = '';
-    }
     showMoveDialog.value = true;
 };
 
@@ -524,6 +550,49 @@ onMounted(async () => {
         font-size: 12px;
         color: rgb(var(--v-theme-text-darken-1));
         word-break: break-all;
+    }
+}
+
+.folder-candidates {
+    &__label {
+        margin-bottom: 6px;
+        font-size: 12px;
+        font-weight: 700;
+        color: rgb(var(--v-theme-text-darken-1));
+    }
+    &__empty {
+        padding: 8px 0;
+        font-size: 13px;
+        color: rgb(var(--v-theme-text-darken-1));
+    }
+    &__list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: 240px;
+        overflow-y: auto;
+    }
+    &__item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 8px 12px;
+        border: none;
+        border-radius: 8px;
+        text-align: left;
+        font-size: 14px;
+        cursor: pointer;
+        color: rgb(var(--v-theme-text));
+        background: rgb(var(--v-theme-background-lighten-1));
+        word-break: break-all;
+        &:hover {
+            background: rgb(var(--v-theme-background-lighten-2));
+        }
+        &--on {
+            font-weight: 700;
+            box-shadow: inset 3px 0 0 rgb(var(--v-theme-primary));
+        }
     }
 }
 
