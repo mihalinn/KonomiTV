@@ -41,6 +41,7 @@
                     <section class="genre-day" v-for="day in days" :key="day.key">
                         <h3 class="genre-day__title">{{day.label}}</h3>
                         <div class="genre-row" v-for="program in day.programs" :key="program.id" v-ripple
+                            :class="reservationClass(program)"
                             :style="{'--genre-color': programColor(program)}"
                             @click="openDrawer(program)">
                             <div class="genre-row__time">
@@ -53,8 +54,11 @@
                                 </div>
                                 <div class="genre-row__channel">{{channelName(program)}}</div>
                             </div>
-                            <Icon v-if="reservationMap.has(program.id)" class="genre-row__reserved"
-                                icon="fluent:record-16-filled" width="16px" />
+                            <div v-if="reservationMap.has(program.id)" class="genre-row__reserved"
+                                :class="{'genre-row__reserved--off': !reservationMap.get(program.id)!.record_settings.is_enabled}">
+                                <Icon icon="fluent:record-16-filled" width="16px" />
+                                <span>{{reservationLabel(program)}}</span>
+                            </div>
                         </div>
                     </section>
                 </div>
@@ -135,6 +139,20 @@ const genreColor = (genre: string | undefined): string => {
     return TimeTableUtils.getGenreColors(genre, settingsStore.settings.timetable_genre_colors).highlight;
 };
 const programColor = (program: IProgram): string => genreColor(program.genres?.[0]?.major);
+
+const reservationLabel = (program: IProgram): string => {
+    const reservation = reservationMap.value.get(program.id);
+    if (reservation === undefined) return '';
+    if (reservation.is_recording_in_progress) return '録画中';
+    return reservation.record_settings.is_enabled ? '録画予約済' : '予約無効';
+};
+const reservationClass = (program: IProgram) => {
+    const reservation = reservationMap.value.get(program.id);
+    return {
+        'genre-row--reserved': reservation !== undefined && reservation.record_settings.is_enabled,
+        'genre-row--reserved-off': reservation !== undefined && !reservation.record_settings.is_enabled,
+    };
+};
 
 const channelName = (program: IProgram): string => channelMap.value.get(program.channel_id)?.name ?? program.channel_id;
 const formatTime = (time: string): string => dayjs(time).format('HH:mm');
@@ -463,8 +481,31 @@ onMounted(async () => {
     }
 
     &__reserved {
+        display: flex;
+        align-items: center;
         flex: 0 0 auto;
-        color: #ff4d4f;
+        gap: 4px;
+        padding: 4px 10px;
+        border-radius: 14px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #fff;
+        background: #e53935;
+        &--off {
+            background: #757575;
+        }
+    }
+
+    &--reserved {
+        background: rgba(229, 57, 53, 0.16);
+        box-shadow: inset 0 0 0 1px rgba(229, 57, 53, 0.65);
+        &:hover {
+            background: rgba(229, 57, 53, 0.24);
+        }
+    }
+
+    &--reserved-off {
+        opacity: 0.75;
     }
 }
 
