@@ -14,18 +14,38 @@
                         </h2>
                         <div class="series-container__loading" v-if="is_loading">読み込み中…</div>
                         <div class="series-container__empty" v-else-if="folders.length === 0">録画番組がありません。</div>
-                        <div class="series-grid" v-else>
-                            <router-link v-for="folder in folders" :key="folder.key"
-                                v-ripple class="series-card"
-                                :to="{path: '/videos/series', query: {folder: folder.key}}">
-                                <div class="series-card__thumbnail">
-                                    <img loading="lazy" decoding="async"
-                                        :src="`${Utils.api_base_url}/videos/${folder.latest.id}/thumbnail`">
-                                    <div class="series-card__badge">{{folder.programs.length}}話</div>
+                        <template v-else>
+                            <section class="series-section" v-for="section in sections" :key="section.label">
+                                <h3 class="series-section__label" v-if="pinnedFolders.length > 0">
+                                    <Icon v-if="section.pinned" icon="fluent:pin-20-filled" width="16px" height="16px" />
+                                    <span>{{section.label}}</span>
+                                    <span class="series-section__count">{{section.folders.length}}</span>
+                                </h3>
+                                <div class="series-grid">
+                                    <div v-for="folder in section.folders" :key="folder.key"
+                                        class="series-item" :class="{'series-item--pinned': isPinned(folder.key)}">
+                                        <router-link v-ripple class="series-item__link"
+                                            :to="{path: '/videos/series', query: {folder: folder.key}}">
+                                            <div class="series-item__thumbnail">
+                                                <img loading="lazy" decoding="async"
+                                                    :src="`${Utils.api_base_url}/videos/${folder.latest.id}/thumbnail`">
+                                                <div class="series-item__badge">{{folder.programs.length}}話</div>
+                                            </div>
+                                            <div class="series-item__body">
+                                                <div class="series-item__name">{{folder.name}}</div>
+                                                <div class="series-item__meta">{{folder.programs.length}}話 ・ 最新 {{formatDate(folder.latest.start_time)}}</div>
+                                            </div>
+                                        </router-link>
+                                        <button type="button" class="series-item__pin"
+                                            :class="{'series-item__pin--on': isPinned(folder.key)}"
+                                            :aria-label="isPinned(folder.key) ? '固定を外す' : '上に固定する'"
+                                            @click.prevent.stop="togglePin(folder.key)">
+                                            <Icon :icon="isPinned(folder.key) ? 'fluent:pin-20-filled' : 'fluent:pin-20-regular'" width="22px" height="22px" />
+                                        </button>
+                                    </div>
                                 </div>
-                                <div class="series-card__name">{{folder.name}}</div>
-                            </router-link>
-                        </div>
+                            </section>
+                        </template>
                     </template>
                     <RecordedProgramList v-else
                         :title="selectedName"
@@ -116,6 +136,49 @@ const folders = computed<IFolder[]>(() => {
     });
     return result;
 });
+
+// 上に固定しているシリーズ (この端末のブラウザに保存)
+const PINNED_STORAGE_KEY = 'konomitv.series.pinned';
+const loadPinned = (): string[] => {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(PINNED_STORAGE_KEY) ?? '[]');
+        return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
+    } catch {
+        return [];
+    }
+};
+const pinnedKeys = ref<string[]>(loadPinned());
+
+const isPinned = (key: string): boolean => pinnedKeys.value.includes(key);
+
+const togglePin = (key: string) => {
+    pinnedKeys.value = isPinned(key) ? pinnedKeys.value.filter(k => k !== key) : [...pinnedKeys.value, key];
+    try {
+        localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(pinnedKeys.value));
+    } catch {
+        // 保存できなくても画面上の固定は有効
+    }
+};
+
+// 固定中のシリーズ (固定した順)。存在しなくなったフォルダは無視する
+const pinnedFolders = computed(() => pinnedKeys.value
+    .map(key => folders.value.find(f => f.key === key))
+    .filter((f): f is IFolder => f !== undefined));
+
+const sections = computed(() => {
+    if (pinnedFolders.value.length === 0) {
+        return [{ label: 'すべてのシリーズ', pinned: false, folders: folders.value }];
+    }
+    const rest = folders.value.filter(f => !isPinned(f.key));
+    const result = [{ label: '固定中', pinned: true, folders: pinnedFolders.value }];
+    if (rest.length > 0) result.push({ label: 'すべてのシリーズ', pinned: false, folders: rest });
+    return result;
+});
+
+const formatDate = (iso: string): string => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '' : `${d.getMonth() + 1}/${d.getDate()}`;
+};
 
 // 選択中のフォルダ (null = 一覧表示)
 const selectedFolder = computed<string | null>(() => {
@@ -219,29 +282,64 @@ onMounted(async () => {
     }
 }
 
+.series-section {
+    margin-bottom: 20px;
+    &__label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 10px;
+        font-size: 14px;
+        font-weight: 700;
+        color: rgb(var(--v-theme-text-darken-1));
+        @include smartphone-vertical {
+            padding: 0 8px;
+        }
+    }
+    &__count {
+        font-size: 12px;
+        font-weight: 400;
+    }
+}
+
 .series-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 16px;
+    // スマホ縦向きは 1 列のリスト表示
     @include smartphone-vertical {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 10px;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 6px;
     }
 }
 
-.series-card {
-    display: flex;
-    flex-direction: column;
+.series-item {
+    position: relative;
     min-width: 0;
     border-radius: 11px;
     overflow: hidden;
     background: rgb(var(--v-theme-background-lighten-1));
-    color: rgb(var(--v-theme-text));
-    text-decoration: none;
-    cursor: pointer;
     transition: background-color 0.15s;
     &:hover {
         background: rgb(var(--v-theme-background-lighten-2));
+    }
+    &--pinned {
+        box-shadow: inset 3px 0 0 rgb(var(--v-theme-primary));
+    }
+
+    &__link {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        color: rgb(var(--v-theme-text));
+        text-decoration: none;
+        cursor: pointer;
+        @include smartphone-vertical {
+            flex-direction: row;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 52px 8px 8px;
+        }
     }
 
     &__thumbnail {
@@ -253,6 +351,12 @@ onMounted(async () => {
             height: 100%;
             object-fit: cover;
             display: block;
+        }
+        @include smartphone-vertical {
+            flex: none;
+            width: 112px;
+            border-radius: 6px;
+            overflow: hidden;
         }
     }
 
@@ -266,10 +370,22 @@ onMounted(async () => {
         font-weight: 700;
         color: #fff;
         background: rgba(0, 0, 0, 0.75);
+        // リスト表示では話数を文字側に出すので隠す
+        @include smartphone-vertical {
+            display: none;
+        }
+    }
+
+    &__body {
+        min-width: 0;
+        padding: 10px 12px 12px;
+        @include smartphone-vertical {
+            flex: 1;
+            padding: 0;
+        }
     }
 
     &__name {
-        padding: 10px 12px 12px;
         font-size: 14px;
         font-weight: 700;
         line-height: 1.4;
@@ -278,6 +394,56 @@ onMounted(async () => {
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         word-break: break-all;
+    }
+
+    &__meta {
+        display: none;
+        margin-top: 4px;
+        font-size: 12px;
+        color: rgb(var(--v-theme-text-darken-1));
+        @include smartphone-vertical {
+            display: block;
+        }
+    }
+
+    &__pin {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: none;
+        cursor: pointer;
+        color: #fff;
+        background: rgba(0, 0, 0, 0.55);
+        transition: background-color 0.15s, color 0.15s;
+        &:hover {
+            background: rgba(0, 0, 0, 0.8);
+        }
+        &--on {
+            color: rgb(var(--v-theme-primary));
+            background: rgba(0, 0, 0, 0.8);
+        }
+        @include smartphone-vertical {
+            top: 50%;
+            right: 4px;
+            width: 44px;
+            height: 44px;
+            transform: translateY(-50%);
+            color: rgb(var(--v-theme-text-darken-1));
+            background: transparent;
+            &:hover {
+                background: transparent;
+            }
+            &--on {
+                color: rgb(var(--v-theme-primary));
+                background: transparent;
+            }
+        }
     }
 }
 
