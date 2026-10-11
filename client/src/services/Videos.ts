@@ -374,6 +374,42 @@ class Videos {
 
         return true;
     }
+
+    /**
+     * [改造] 録画フォルダ直下のサブフォルダ一覧を取得する (空のフォルダも含む・管理者のみ)
+     * @returns フォルダ名の一覧。失敗した場合は null
+     */
+    static async fetchFolders(): Promise<{ name: string; path: string }[] | null> {
+
+        const response = await APIClient.get<{ folders: { name: string; path: string }[] }>('/videos/folders');
+
+        if (response.type === 'error') {
+            APIClient.showGenericError(response, 'フォルダ一覧の取得に失敗しました。');
+            return null;
+        }
+
+        return response.data.folders;
+    }
+
+
+    /**
+     * [改造] 録画ファイルを録画フォルダ直下の指定フォルダへ移動する (なければ作成・管理者のみ)
+     * 録画番組の ID・メタデータ・サムネイルはそのまま引き継がれる
+     * @param video_id 録画番組の ID
+     * @param folder 移動先フォルダ名 (1 階層のみ)
+     * @returns 移動に成功した場合は null 、失敗した場合はエラーメッセージ
+     */
+    static async moveVideo(video_id: number, folder: string): Promise<string | null> {
+
+        const response = await APIClient.post(`/videos/${video_id}/move`, { folder });
+
+        if (response.type === 'error') {
+            const detail = response.data.detail;
+            return typeof detail === 'string' && detail !== '' ? detail : '移動に失敗しました。';
+        }
+
+        return null;
+    }
 }
 
 export default Videos;
