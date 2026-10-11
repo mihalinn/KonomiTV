@@ -12,12 +12,6 @@
                             <span>シリーズ別</span>
                             <span class="series-container__count" v-if="!is_loading">{{folders.length}}シリーズ / {{programs.length}}件</span>
                         </h2>
-                        <div class="series-actions" v-if="isAdmin">
-                            <v-btn variant="tonal" color="primary" size="small" @click="showImportDialog = true">
-                                <Icon icon="fluent:arrow-upload-20-regular" width="18px" height="18px" />
-                                <span class="ml-1">ファイルを追加 (アップロード)</span>
-                            </v-btn>
-                        </div>
                         <div class="series-container__loading" v-if="is_loading">読み込み中…</div>
                         <div class="series-container__empty" v-else-if="folders.length === 0">録画番組がありません。</div>
                         <template v-else>
@@ -55,7 +49,7 @@
                     </template>
                     <template v-else>
                         <div class="organize-bar" v-if="isAdmin && selectedPrograms.length > 0">
-                            <v-btn class="mr-2" variant="tonal" color="primary" size="small" @click="showImportDialog = true">
+                            <v-btn class="mr-2" variant="tonal" color="primary" size="small" @click="videoImportStore.open(importDefaultFolder)">
                                 <Icon icon="fluent:arrow-upload-20-regular" width="18px" height="18px" />
                                 <span class="ml-1">このシリーズにファイルを追加</span>
                             </v-btn>
@@ -151,12 +145,10 @@
         </v-card>
     </v-dialog>
 
-    <!-- [改造] ファイルのアップロード取り込みダイアログ -->
-    <VideoImportDialog v-model="showImportDialog" :initialFolder="importDefaultFolder" @imported="fetchAll" />
 </template>
 <script lang="ts" setup>
 
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
 import Breadcrumbs from '@/components/Breadcrumbs.vue';
@@ -164,12 +156,12 @@ import HeaderBar from '@/components/HeaderBar.vue';
 import Navigation from '@/components/Navigation.vue';
 import SPHeaderBar from '@/components/SPHeaderBar.vue';
 import RecordedProgramList from '@/components/Videos/RecordedProgramList.vue';
-import VideoImportDialog from '@/components/Videos/VideoImportDialog.vue';
 import Message from '@/message';
 import { makeSeriesTitle } from '@/services/SeriesTitle';
 import { IRecordedProgram } from '@/services/Videos';
 import Videos from '@/services/Videos';
 import useUserStore from '@/stores/UserStore';
+import useVideoImportStore from '@/stores/VideoImportStore';
 import Utils from '@/utils';
 
 interface IFolder {
@@ -440,10 +432,15 @@ const executeMove = async () => {
 
 // ---- [改造] ファイルのアップロード取り込み (管理者のみ) ----
 
-const showImportDialog = ref(false);
+const videoImportStore = useVideoImportStore();
 const importDefaultFolder = computed(() => {
     if (selectedFolder.value === null || selectedFolder.value === UNSORTED_KEY) return '';
     return baseName(selectedFolder.value);
+});
+
+// 取り込みが完了したら一覧を読み込み直す
+watch(() => videoImportStore.importedCount, () => {
+    fetchAll();
 });
 
 onMounted(async () => {
@@ -618,9 +615,6 @@ onMounted(async () => {
     }
 }
 
-.series-actions {
-    margin: 0 0 14px;
-}
 
 .move-progress {
     font-size: 13px;

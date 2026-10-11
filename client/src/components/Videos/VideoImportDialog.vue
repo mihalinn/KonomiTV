@@ -8,6 +8,7 @@
             <v-card-text class="pt-2 pb-0">
                 <div class="text-body-2 text-text-darken-1 mb-3">
                     MP4 や WebM などの動画を、録画番組として追加します。KonomiTV で再生できない形式 (VP9 / AV1 / Opus など) は、サーバーで自動的に H.264 + AAC の MP4 に変換されます。
+                    追加先フォルダはファイル名から自動で決まります。(近い名前の既存フォルダがあればそれを使います)
                     アップロード中はこのページを開いたままにしてください。(変換が始まったら閉じても大丈夫です)
                 </div>
 
@@ -20,28 +21,20 @@
                 </v-btn>
 
                 <template v-if="items.length > 0">
-                    <v-text-field class="mt-5" v-model="folderName" label="追加先フォルダ名 (入力で絞り込み・なければ新規作成)" variant="outlined"
-                        density="comfortable" hide-details="auto" :counter="60" clearable :error-messages="folderError" />
-                    <div class="text-body-2 mt-2" v-if="folderTarget !== ''">
-                        追加先: <b>{{folderTarget}}</b>
-                        <span class="text-text-darken-1">{{folderIsNew ? '(新規作成)' : '(既存のフォルダ)'}}</span>
-                    </div>
-                    <div class="folder-candidates mt-3" v-if="folderCandidates.length > 0">
-                        <div class="folder-candidates__label">近い既存のフォルダ ({{folderCandidates.length}}件)</div>
-                        <div class="folder-candidates__list">
-                            <button type="button" v-for="name in folderCandidates" :key="name" class="folder-candidates__item"
-                                :class="{'folder-candidates__item--on': name === folderTarget}" @click="folderName = name">
-                                <Icon icon="fluent:folder-20-regular" width="18px" height="18px" />
-                                <span>{{name}}</span>
-                            </button>
-                        </div>
-                    </div>
-
                     <v-select class="mt-5" v-model="quality" label="変換方式 (変換が必要なファイルのみ)" variant="outlined" density="comfortable"
-                        hide-details :items="qualityItems" item-title="title" item-value="value" />
+                        hint="画質はどちらも同じです。違いは変換にかかる時間だけです。" persistent-hint
+                        :items="qualityItems" item-title="title" item-value="value" />
+                    <datalist id="import-folder-list">
+                        <option v-for="name in existingFolders" :key="name" :value="name"></option>
+                    </datalist>
 
                     <div class="import-items mt-5">
-                        <div class="import-items__label">追加するファイル ({{items.length}}件) ・ タイトルと放送日は直せます</div>
+                        <div class="import-items__label">
+                            追加するファイル ({{items.length}}件) ・ 追加先フォルダ・タイトル・放送日は直せます
+                            <button type="button" class="import-items__unify" v-if="items.length > 1" @click="unifyFolders">
+                                全部を先頭のファイルと同じフォルダにする
+                            </button>
+                        </div>
                         <div class="import-item" v-for="item in items" :key="item.key">
                             <div class="import-item__file">
                                 {{item.file.name}} ({{formatSize(item.file.size)}})
@@ -54,6 +47,9 @@
                                     hide-details="auto" :error-messages="titleError(item)" />
                                 <v-text-field class="import-item__date" v-model="item.date" label="放送日" type="date" variant="outlined"
                                     density="compact" hide-details />
+                                <v-text-field class="import-item__folder" v-model="item.folder" label="追加先フォルダ (なければ新規作成)" list="import-folder-list"
+                                    variant="outlined" density="compact" hide-details="auto" clearable :counter="60"
+                                    :error-messages="folderError(item)" :hint="folderHint(item)" persistent-hint />
                             </div>
                             <div class="import-item__error" v-if="item.error">{{item.error}}</div>
                         </div>
@@ -95,6 +91,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
 import Message from '@/message';
+import { makeSeriesTitle } from '@/services/SeriesTitle';
 import Videos, { IVideoImportJob } from '@/services/Videos';
 
 const props = defineProps<{
@@ -116,6 +113,7 @@ interface IImportItem {
     file: File;
     title: string;
     date: string;
+    folder: string;
     error: string;
 }
 
@@ -126,7 +124,7 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const items = ref<IImportItem[]>([]);
 const jobs = ref<IVideoImportJob[]>([]);
 const existingFolders = ref<string[]>([]);
-const folderName = ref('');
+const defaultFolder = ref('');
 const quality = ref<'quality' | 'fast'>('quality');
 const uploading = ref(false);
 let nextKey = 1;
@@ -134,8 +132,8 @@ let nextKey = 1;
 const activeUploads = new Set<string>();
 
 const qualityItems = [
-    { title: '高画質 (CPU・時間がかかる。1話あたり約7分・約500MB)', value: 'quality' },
-    { title: '高速 (GPU・約2分・約700MB)', value: 'fast' },
+    { title: '標準 (CPU・約7分)', value: 'quality' },
+    { title: '高速 (GPU・約2分)', value: 'fast' },
 ];
 
 // ---- ファイル名 → タイトルの整形 ----
@@ -153,9 +151,44 @@ const makeTitle = (filename: string): string => {
     t = t.replace(/【公式】/g, '').replace(/\s*(期間限定)?(本編)?配信\s*$/, '');
     // 先頭の「作品名」の鉤括弧を外す
     t = t.replace(/^\s*「([^」]+)」\s*/, '$1 ');
-    t = Array.from(t).map(c => FULLWIDTH_REPLACEMENTS[c] ?? (isInvalidChar(c) ? ' ' : c)).join('');
+    return sanitizeName(t);
+};
+
+// ファイル名・フォルダ名に使えない文字を置き換え、前後の空白とドットを取り除く
+const sanitizeName = (name: string): string => {
+    let t = Array.from(name).map(c => FULLWIDTH_REPLACEMENTS[c] ?? (isInvalidChar(c) ? ' ' : c)).join('');
     t = t.replace(/\s+/g, ' ').trim().replace(/\.+$/, '').trim();
     return t;
+};
+
+// ファイル名から追加先フォルダ名を決める (先頭の「作品名」→ なければ自動フォルダ分けと同じ規則)
+const guessFolder = (filename: string, title: string): string => {
+    let t = filename.replace(/\.[^.]+$/, '').normalize('NFC');
+    if (t.includes('⧸')) t = t.replace(/^[^⧸]*⧸\s*-?\s*/, '');
+    t = t.replace(/【公式】/g, '').replace(/^\s*第\d+話\s*[～~〜]\s*第\d+話\s*/, '').trim();
+    const quoted = /^\s*「([^」]+)」/.exec(t);
+    const name = sanitizeName(quoted ? quoted[1] : makeSeriesTitle(title));
+    return name.slice(0, 60).trim();
+};
+
+// 近い名前の既存フォルダがあればそれを使う (完全一致、または一方が他方の先頭と一致)
+const matchExistingFolder = (name: string): string => {
+    const q = normalizeForSearch(name);
+    if (q === '') return name;
+    let best: string | null = null;
+    let bestRank = 99;
+    for (const folder of existingFolders.value) {
+        const n = normalizeForSearch(folder);
+        if (n === '') continue;
+        let rank = 99;
+        if (n === q) rank = 0;
+        else if (n.length >= 4 && q.length >= 4 && (n.startsWith(q) || q.startsWith(n))) rank = 1;
+        if (rank < bestRank) {
+            best = folder;
+            bestRank = rank;
+        }
+    }
+    return best ?? name;
 };
 
 const pad2 = (n: number): string => String(n).padStart(2, '0');
@@ -173,7 +206,9 @@ const onFilesSelected = (event: Event) => {
     input.value = '';
     files.sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true }));
     for (const file of files) {
-        items.value.push({ key: nextKey++, file, title: makeTitle(file.name), date: toDateInput(file.lastModified), error: '' });
+        const title = makeTitle(file.name);
+        const folder = defaultFolder.value !== '' ? defaultFolder.value : matchExistingFolder(guessFolder(file.name, title));
+        items.value.push({ key: nextKey++, file, title, date: toDateInput(file.lastModified), folder, error: '' });
     }
 };
 
@@ -183,17 +218,26 @@ const removeItem = (key: number) => {
 
 // ---- 追加先フォルダ ----
 
-const folderTarget = computed(() => folderName.value.trim());
-const folderIsNew = computed(() => folderTarget.value !== '' && !existingFolders.value.includes(folderTarget.value));
-const folderError = computed(() => {
-    const name = folderTarget.value;
-    if (name === '') return '';
+const folderError = (item: IImportItem): string => {
+    const name = item.folder.trim();
+    if (name === '') return '追加先フォルダを入力してください。';
     if (name.length > 60) return '60文字までです。';
     if (Array.from(name).some(isInvalidChar)) return '使えない文字が含まれています。(\\ / : * ? " < > |)';
     if (name === '.' || name === '..' || name.endsWith('.')) return '末尾にドットは使えません。';
     return '';
-});
+};
 
+const folderHint = (item: IImportItem): string => {
+    const name = item.folder.trim();
+    if (name === '' || folderError(item) !== '') return '';
+    return existingFolders.value.includes(name) ? '既存のフォルダに追加します' : '新規作成します';
+};
+
+const unifyFolders = () => {
+    if (items.value.length === 0) return;
+    const folder = items.value[0].folder;
+    for (const item of items.value) item.folder = folder;
+};
 const normalizeForSearch = (s: string): string => Array.from(s.normalize('NFKC').toLowerCase())
     .map(c => {
         const code = c.charCodeAt(0);
@@ -201,23 +245,6 @@ const normalizeForSearch = (s: string): string => Array.from(s.normalize('NFKC')
     })
     .join('')
     .replace(/[\s・!?~〜]/g, '');
-
-const folderCandidates = computed(() => {
-    const q = normalizeForSearch(folderName.value);
-    const scored: { name: string; rank: number }[] = [];
-    for (const name of existingFolders.value) {
-        const n = normalizeForSearch(name);
-        let rank = -1;
-        if (q === '') rank = 3;
-        else if (n === '') rank = -1;
-        else if (n === q) rank = 0;
-        else if (n.startsWith(q) || q.startsWith(n)) rank = 1;
-        else if (n.includes(q) || (n.length >= 2 && q.includes(n))) rank = 2;
-        if (rank >= 0) scored.push({ name, rank });
-    }
-    scored.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name, 'ja'));
-    return scored.map(s => s.name);
-});
 
 // ---- タイトルの検証 ----
 
@@ -232,8 +259,8 @@ const titleError = (item: IImportItem): string => {
     return '';
 };
 
-const canStart = computed(() => !uploading.value && items.value.length > 0 && folderTarget.value !== '' && folderError.value === ''
-    && items.value.every(item => titleError(item) === '' && item.date !== ''));
+const canStart = computed(() => !uploading.value && items.value.length > 0
+    && items.value.every(item => folderError(item) === '' && titleError(item) === '' && item.date !== ''));
 
 // ---- アップロード ----
 
@@ -246,7 +273,7 @@ const uploadItem = async (item: IImportItem, index: number): Promise<boolean> =>
     const created = await Videos.createImport({
         filename: item.file.name,
         size: item.file.size,
-        folder: folderTarget.value,
+        folder: item.folder.trim(),
         title: item.title,
         start_date,
         quality: quality.value,
@@ -383,7 +410,7 @@ const startPolling = () => {
 
 watch(show, async (value) => {
     if (!value) return;
-    folderName.value = props.initialFolder;
+    defaultFolder.value = props.initialFolder;
     const folders = await Videos.fetchFolders();
     existingFolders.value = folders ? folders.map(f => f.name) : [];
     await refreshJobs();
@@ -403,50 +430,26 @@ onBeforeUnmount(() => {
 </script>
 <style lang="scss" scoped>
 
-.folder-candidates {
-    &__label {
-        margin-bottom: 6px;
-        font-size: 12px;
-        font-weight: 700;
-        color: rgb(var(--v-theme-text-darken-1));
-    }
-    &__list {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        max-height: 180px;
-        overflow-y: auto;
-    }
-    &__item {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        padding: 8px 12px;
-        border: none;
-        border-radius: 8px;
-        text-align: left;
-        font-size: 14px;
-        cursor: pointer;
-        color: rgb(var(--v-theme-text));
-        background: rgb(var(--v-theme-background-lighten-1));
-        word-break: break-all;
-        &:hover {
-            background: rgb(var(--v-theme-background-lighten-2));
-        }
-        &--on {
-            font-weight: 700;
-            box-shadow: inset 3px 0 0 rgb(var(--v-theme-primary));
-        }
-    }
-}
-
 .import-items {
     &__label {
         margin-bottom: 8px;
         font-size: 12px;
         font-weight: 700;
         color: rgb(var(--v-theme-text-darken-1));
+    }
+    &__unify {
+        display: block;
+        margin-top: 4px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        color: rgb(var(--v-theme-primary));
+        &:hover {
+            text-decoration: underline;
+        }
     }
 }
 
@@ -492,6 +495,10 @@ onBeforeUnmount(() => {
     }
     &__date {
         flex: 0 0 170px;
+    }
+    &__folder {
+        flex: 1 1 100%;
+        min-width: 0;
     }
     &__error {
         margin-top: 6px;

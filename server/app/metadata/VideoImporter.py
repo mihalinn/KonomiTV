@@ -468,7 +468,7 @@ class VideoImporter:
                 if plan == 'audio':
                     args += ['-c:v', 'copy']
                 elif job['quality'] == 'fast':
-                    args += ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', '24', '-b:v', '0',
+                    args += ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', '28', '-b:v', '0',
                              '-profile:v', 'high', '-pix_fmt', 'yuv420p']
                 else:
                     args += ['-c:v', 'libx264', '-preset', 'medium', '-crf', '22', '-profile:v', 'high', '-pix_fmt', 'yuv420p']
