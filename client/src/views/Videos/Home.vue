@@ -10,6 +10,11 @@
                         { name: 'ホーム', path: '/' },
                         { name: 'ビデオをみる', path: '/videos/', disabled: true },
                     ]" />
+                    <router-link v-ripple class="videos-home-container__series-link" to="/videos/series">
+                        <Icon icon="fluent:folder-20-regular" width="22px" height="22px" />
+                        <span>シリーズ別で見る</span>
+                        <Icon icon="fluent:chevron-right-12-regular" width="18px" class="ml-auto" />
+                    </router-link>
                     <RecordedProgramList
                         class="videos-home-container__recent-programs"
                         :class="{'videos-home-container__recent-programs--loading': recent_programs.length === 0 && is_loading}"
@@ -216,6 +221,22 @@ onUnmounted(() => {
 }
 
 .videos-home-container {
+    &__series-link {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 16px;
+        margin-bottom: 20px;
+        border-radius: 11px;
+        font-weight: 700;
+        color: rgb(var(--v-theme-text));
+        background: rgb(var(--v-theme-background-lighten-1));
+        text-decoration: none;
+        &:hover {
+            background: rgb(var(--v-theme-background-lighten-2));
+        }
+    }
+
     display: flex;
     flex-direction: column;
     width: 100%;
