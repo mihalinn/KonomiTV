@@ -239,6 +239,7 @@ onUnmounted(() => {
 .videos-home-container {
     &__series-bar {
         display: flex;
+        flex-shrink: 0;
         align-items: stretch;
         margin-bottom: 20px;
         border-radius: 11px;
