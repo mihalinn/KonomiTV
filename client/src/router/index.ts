@@ -65,6 +65,11 @@ const router = createRouter({
             component: () => import('@/views/TimeTable.vue'),
         },
         {
+            path: '/timetable/genre',
+            name: 'TimeTable Genre',
+            component: () => import('@/views/TimeTable/GenreList.vue'),
+        },
+        {
             path: '/reservations/',
             name: 'Reservations',
             component: () => import('@/views/Reservations/Home.vue'),

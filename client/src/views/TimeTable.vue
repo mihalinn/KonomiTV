@@ -90,6 +90,15 @@
                         </v-btn>
                     </div>
                 </div>
+                <!-- [改造3] ジャンル別一覧への入口 -->
+                <div class="timetable-genre-bar">
+                    <span class="timetable-genre-bar__label">ジャンルで探す</span>
+                    <router-link v-for="genre in GENRE_LINKS" :key="genre" class="timetable-genre-bar__chip"
+                        :style="{'--genre-color': TimeTableUtils.getGenreColors(genre, settingsStore.settings.timetable_genre_colors).highlight}"
+                        :to="{path: '/timetable/genre', query: {genre}}">
+                        <span class="timetable-genre-bar__dot"></span>{{genre}}
+                    </router-link>
+                </div>
                 <!-- 番組表グリッド -->
                 <TimeTableGrid
                     ref="timetableGridRef"
@@ -138,12 +147,21 @@ import { IChannel, ChannelTypePretty } from '@/services/Channels';
 import { IProgram, ITimeTableProgram } from '@/services/Programs';
 import Reservations, { IReservation, IRecordSettings, IRecordSettingsDefault } from '@/services/Reservations';
 import useServerSettingsStore from '@/stores/ServerSettingsStore';
+import useSettingsStore from '@/stores/SettingsStore';
 import useTimeTableStore, { CHANNEL_TYPE_DISPLAY_ORDER } from '@/stores/TimeTableStore';
 import Utils, { dayjs } from '@/utils';
+import { TimeTableUtils } from '@/utils/TimeTableUtils';
 
 
 // ストア
 const timetableStore = useTimeTableStore();
+const settingsStore = useSettingsStore();
+
+// [改造3] ジャンルで探すバーに並べるジャンル
+const GENRE_LINKS = [
+    'ニュース・報道', '情報・ワイドショー', 'ドキュメンタリー・教養', 'スポーツ', 'ドラマ', 'アニメ・特撮',
+    'バラエティ', '音楽', '映画', '劇場・公演', '趣味・教育', '福祉', 'その他',
+];
 
 // コンポーネント参照
 const timetableGridRef = ref<InstanceType<typeof TimeTableGrid> | null>(null);
@@ -902,6 +920,47 @@ watch(() => timetableStore.selected_date, () => {
         min-width: 40px;
         background: rgb(var(--v-theme-background-lighten-1));
         border-radius: 8px;
+    }
+}
+
+// [改造3] ジャンルで探すバー
+.timetable-genre-bar {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    gap: 6px;
+    padding: 5px 10px;
+    overflow-x: auto;
+    white-space: nowrap;
+    background: rgb(var(--v-theme-background-lighten-1));
+    border-bottom: 1px solid rgb(var(--v-theme-background-lighten-2));
+    &__label {
+        flex: 0 0 auto;
+        font-size: 12px;
+        color: rgb(var(--v-theme-text-darken-1));
+    }
+    &__chip {
+        display: inline-flex;
+        align-items: center;
+        flex: 0 0 auto;
+        gap: 5px;
+        padding: 3px 10px;
+        border-radius: 14px;
+        font-size: 12px;
+        font-weight: 700;
+        color: rgb(var(--v-theme-text));
+        background: rgb(var(--v-theme-background-lighten-2));
+        text-decoration: none;
+        &:hover {
+            filter: brightness(1.2);
+        }
+    }
+    &__dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--genre-color);
+        box-shadow: 0 0 0 1px rgba(128, 128, 128, 0.45);
     }
 }
 
