@@ -10,11 +10,19 @@
                         { name: 'ホーム', path: '/' },
                         { name: 'ビデオをみる', path: '/videos/', disabled: true },
                     ]" />
-                    <router-link v-ripple class="videos-home-container__series-link" to="/videos/series">
-                        <Icon icon="fluent:folder-20-regular" width="22px" height="22px" />
-                        <span>シリーズ別で見る</span>
-                        <Icon icon="fluent:chevron-right-12-regular" width="18px" class="ml-auto" />
-                    </router-link>
+                    <div class="videos-home-container__series-bar">
+                        <router-link v-ripple class="videos-home-container__series-link" to="/videos/series">
+                            <Icon icon="fluent:folder-20-regular" width="22px" height="22px" />
+                            <span>シリーズ別で見る</span>
+                            <Icon icon="fluent:chevron-right-12-regular" width="18px" class="ml-auto" />
+                        </router-link>
+                        <!-- [改造] ファイルを追加 (アップロード取り込み。管理者のみ) -->
+                        <button v-if="userStore.user?.is_admin" v-ripple type="button" class="videos-home-container__import-button"
+                            @click="videoImportStore.open()">
+                            <Icon icon="fluent:arrow-upload-20-regular" width="20px" height="20px" />
+                            <span>ファイルを追加</span>
+                        </button>
+                    </div>
                     <RecordedProgramList
                         class="videos-home-container__recent-programs"
                         :class="{'videos-home-container__recent-programs--loading': recent_programs.length === 0 && is_loading}"
@@ -74,6 +82,7 @@ import { IRecordedProgram } from '@/services/Videos';
 import Videos from '@/services/Videos';
 import useSettingsStore from '@/stores/SettingsStore';
 import useUserStore from '@/stores/UserStore';
+import useVideoImportStore from '@/stores/VideoImportStore';
 
 // 最近録画された番組のリスト
 const recent_programs = ref<IRecordedProgram[]>([]);
@@ -161,6 +170,9 @@ const fetchWatchedPrograms = async () => {
 };
 
 // 各セクションの更新関数を管理するオブジェクト
+const userStore = useUserStore();
+const videoImportStore = useVideoImportStore();
+
 const sectionUpdaters = {
     recentPrograms: fetchRecentPrograms,
     mylistPrograms: fetchMylistPrograms,
@@ -197,10 +209,14 @@ const stopAutoRefresh = () => {
     }
 };
 
+// 取り込みが完了したら一覧を更新する
+watch(() => videoImportStore.importedCount, () => {
+    updateAllSections();
+});
+
 // 開始時に実行
 onMounted(async () => {
     // 事前にログイン状態を同期（トークンがあればユーザー情報を取得）
-    const userStore = useUserStore();
     await userStore.fetchUser();
     startAutoRefresh();
 });
@@ -221,19 +237,47 @@ onUnmounted(() => {
 }
 
 .videos-home-container {
+    &__series-bar {
+        display: flex;
+        align-items: stretch;
+        margin-bottom: 20px;
+        border-radius: 11px;
+        overflow: hidden;
+        background: rgb(var(--v-theme-background-lighten-1));
+    }
     &__series-link {
         display: flex;
+        flex: 1;
+        min-width: 0;
         align-items: center;
         gap: 10px;
         padding: 14px 16px;
-        margin-bottom: 20px;
-        border-radius: 11px;
         font-weight: 700;
         color: rgb(var(--v-theme-text));
-        background: rgb(var(--v-theme-background-lighten-1));
         text-decoration: none;
         &:hover {
             background: rgb(var(--v-theme-background-lighten-2));
+        }
+    }
+    &__import-button {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        gap: 6px;
+        padding: 0 18px;
+        border: none;
+        border-left: 1px solid rgb(var(--v-theme-background-lighten-2));
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        color: rgb(var(--v-theme-primary));
+        background: transparent;
+        &:hover {
+            background: rgb(var(--v-theme-background-lighten-2));
+        }
+        @include smartphone-vertical {
+            padding: 0 12px;
+            font-size: 13px;
         }
     }
 

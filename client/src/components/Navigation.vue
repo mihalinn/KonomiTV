@@ -21,14 +21,6 @@
                         <Icon class="navigation__link-icon" icon="fluent:movies-and-tv-20-regular" width="26px" />
                         <span v-if="!iconOnly" class="navigation__link-text">ビデオをみる</span>
                     </router-link>
-                    <!-- [改造] ファイルを追加 (管理者のみ。「ビデオをみる」の直下) -->
-                    <a v-if="userStore.user?.is_admin" v-ripple class="navigation__link navigation__link--sub" href="#"
-                        :class="{'navigation__link--icon-only': iconOnly}"
-                        v-ftooltip.right="iconOnly ? 'ファイルを追加' : ''"
-                        @click.prevent="videoImportStore.open()">
-                        <Icon class="navigation__link-icon" icon="fluent:arrow-upload-20-regular" width="22px" />
-                        <span v-if="!iconOnly" class="navigation__link-text">ファイルを追加</span>
-                    </a>
                     <router-link v-ripple class="navigation__link" active-class="navigation__link--active" to="/timetable/"
                         :class="{
                             'navigation__link--active': $route.path.startsWith('/timetable'),
@@ -109,9 +101,7 @@ import { mapStores } from 'pinia';
 import { defineComponent } from 'vue';
 
 import BottomNavigation from '@/components/BottomNavigation.vue';
-import useUserStore from '@/stores/UserStore';
 import useVersionStore from '@/stores/VersionStore';
-import useVideoImportStore from '@/stores/VideoImportStore';
 
 export default defineComponent({
     name: 'Navigation',
@@ -127,10 +117,10 @@ export default defineComponent({
         },
     },
     computed: {
-        ...mapStores(useUserStore, useVersionStore, useVideoImportStore),
+        ...mapStores(useVersionStore),
     },
     async created() {
-        await Promise.all([this.versionStore.fetchServerVersion(), this.userStore.fetchUser()]);
+        await this.versionStore.fetchServerVersion();
     }
 });
 
@@ -256,24 +246,6 @@ export default defineComponent({
                 }
                 &--highlight {
                     color: rgb(var(--v-theme-secondary-lighten-1));
-                }
-                // 「ビデオをみる」の下に付くサブ項目
-                &--sub {
-                    height: 42px;
-                    padding-left: 30px;
-                    font-size: 14px;
-                    @include smartphone-horizontal {
-                        height: 36px;
-                        padding-left: 26px;
-                        font-size: 13.5px;
-                    }
-                    &.navigation__link--icon-only {
-                        padding-left: 0;
-                        height: 44px;
-                        @include smartphone-horizontal {
-                            height: 40px;
-                        }
-                    }
                 }
                 &--develop-version {
                     font-size: 15px;
