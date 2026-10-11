@@ -197,11 +197,13 @@
             </v-card-title>
             <v-card-text class="pt-2 pb-0">
                 <div class="text-body-2 text-text-darken-1 mb-4">
-                    {{ weeklyScheduleLabel }} に放送される、下のキーワードを含む番組を毎週自動で録画予約します。
+                    <template v-if="weeklyAnyTime">曜日・時間帯を問わず、</template><template v-else>{{ weeklyScheduleLabel }} に放送される、</template>下のキーワードを含む番組を自動で録画予約します。
                 </div>
                 <v-text-field v-model="weeklyKeyword" label="番組名キーワード" variant="outlined"
                     density="comfortable" hide-details="auto" />
-                <v-text-field v-model.number="weeklyTimeToleranceMinutes" class="mt-4" type="number" min="0" max="180"
+                <v-switch v-model="weeklyAnyTime" class="mt-2" color="primary" hide-details density="comfortable"
+                    label="曜日・時間帯を指定しない (毎日・全時間帯。放送が遅れても拾える)" />
+                <v-text-field v-if="!weeklyAnyTime" v-model.number="weeklyTimeToleranceMinutes" class="mt-2" type="number" min="0" max="180"
                     label="放送時刻の許容幅 (前後の分)" variant="outlined" density="comfortable" hide-details="auto" />
                 <v-switch v-model="weeklyAnyChannel" class="mt-2" color="primary" hide-details density="comfortable"
                     :label="`チャンネルを限定しない (オフ: ${weeklyChannelName} のみ)`" />
@@ -466,6 +468,7 @@ const showWeeklyDialog = ref(false);
 const isAddingWeekly = ref(false);
 const weeklyKeyword = ref('');
 const weeklyTimeToleranceMinutes = ref(15);
+const weeklyAnyTime = ref(true);
 const weeklyAnyChannel = ref(false);
 const weeklySkipAlreadyRecorded = ref(false);
 const weeklySeriesFolder = ref(true);
@@ -521,6 +524,7 @@ const openWeeklyDialog = () => {
     if (!displayProgram.value) return;
     weeklyKeyword.value = makeSeriesTitle(displayProgram.value.title) || makeWeeklyKeyword(displayProgram.value.title);
     weeklyTimeToleranceMinutes.value = 15;
+    weeklyAnyTime.value = true;
     weeklyAnyChannel.value = false;
     weeklySkipAlreadyRecorded.value = false;
     weeklySeriesFolder.value = true;
@@ -573,7 +577,7 @@ const confirmWeekly = async () => {
         }],
         genre_ranges: null,
         is_exclude_genre_ranges: false,
-        date_ranges: [{
+        date_ranges: weeklyAnyTime.value ? null : [{
             start_day_of_week: f.dow, start_hour: f.hour, start_minute: f.minute,
             end_day_of_week: t.dow, end_hour: t.hour, end_minute: t.minute,
         }],
