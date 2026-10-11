@@ -766,3 +766,21 @@ class VersionInformation(BaseModel):
     environment: Literal['Windows', 'Linux', 'Linux-Docker', 'Linux-ARM']
     backend: Literal['EDCB', 'Mirakurun']
     encoder: Literal['FFmpeg', 'QSVEncC', 'NVEncC', 'VCEEncC', 'rkmppenc']
+
+
+# ***** [改造] 録画の手動フォルダ移動 *****
+
+class VideoMoveRequest(BaseModel):
+    folder: str  # 移動先フォルダ名 (録画フォルダ直下の 1 階層)
+
+class VideoMoveResult(BaseModel):
+    id: int
+    old_path: str
+    new_path: str
+
+class VideoFolder(BaseModel):
+    name: str
+    path: str
+
+class VideoFolders(BaseModel):
+    folders: list[VideoFolder]

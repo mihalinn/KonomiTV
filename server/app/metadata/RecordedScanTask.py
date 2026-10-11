@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextlib
+import os
 import pathlib
 from dataclasses import dataclass
 from datetime import datetime
@@ -62,6 +64,15 @@ class RecordedVideoSummary:
     file_hash: str
 
 
+class RecordedVideoMoveError(Exception):
+    """ 録画ファイルの移動に失敗したときの例外 (kind がエラーの種類を表す) [改造: 録画の手動フォルダ移動] """
+
+    def __init__(self, kind: Literal['NotFound', 'Invalid', 'Conflict', 'Busy', 'Failed'], message: str) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.message = message
+
+
 class RecordedScanTask:
     """
     録画フォルダの監視とメタデータの DB への同期を行うタスク
@@ -99,6 +110,22 @@ class RecordedScanTask:
     KNOWN_COLLISION_FILE_HASHES: ClassVar[set[str]] = {
         'd1dd210d6b1312cb342b56d02bd5e651',
     }
+
+    # [改造: 録画の手動フォルダ移動] 移動先フォルダ名に使えない文字 (Windows / SMB 共有で扱えない文字)
+    MOVE_FOLDER_FORBIDDEN_CHARS: ClassVar[str] = '\\/:*?"<>|'
+
+    # [改造: 録画の手動フォルダ移動] 移動先フォルダ名の最大文字数
+    MOVE_FOLDER_NAME_MAX_LENGTH: ClassVar[int] = 60
+
+    # [改造: 録画の手動フォルダ移動] Windows の予約デバイス名 (フォルダ名にできない)
+    MOVE_FOLDER_RESERVED_NAMES: ClassVar[set[str]] = {
+        'CON', 'PRN', 'AUX', 'NUL',
+        *(f'COM{i}' for i in range(1, 10)),
+        *(f'LPT{i}' for i in range(1, 10)),
+    }
+
+    # [改造: 録画の手動フォルダ移動] 録画ファイルと一緒に移動する付属ファイルの末尾
+    MOVE_SIDECAR_SUFFIXES: ClassVar[list[str]] = ['.program.txt', '.err']
 
 
     def __new__(cls) -> RecordedScanTask:
@@ -1448,6 +1475,225 @@ class RecordedScanTask:
                 async with self._file_locks_dict_lock:
                     if file_path in self._file_locks and not file_lock.locked():
                         self._file_locks.pop(file_path, None)
+
+
+    # ---- [改造: 録画の手動フォルダ移動] ここから ----
+
+    @classmethod
+    def validateMoveFolderName(cls, folder_name: str) -> str:
+        """
+        移動先フォルダ名を検証する (録画フォルダ直下の 1 階層のみ許可)
+
+        Args:
+            folder_name (str): 移動先フォルダ名
+
+        Raises:
+            RecordedVideoMoveError: フォルダ名として使えない場合
+
+        Returns:
+            str: 検証済みのフォルダ名
+        """
+
+        if folder_name == '' or folder_name.strip() == '':
+            raise RecordedVideoMoveError('Invalid', 'フォルダ名が空です。')
+        if folder_name != folder_name.strip():
+            raise RecordedVideoMoveError('Invalid', 'フォルダ名の前後に空白は使えません。')
+        if folder_name in ('.', '..') or folder_name.endswith('.'):
+            raise RecordedVideoMoveError('Invalid', 'フォルダ名の末尾にドットは使えません。')
+        if len(folder_name) > cls.MOVE_FOLDER_NAME_MAX_LENGTH:
+            raise RecordedVideoMoveError('Invalid', f'フォルダ名が長すぎます。({cls.MOVE_FOLDER_NAME_MAX_LENGTH} 文字まで)')
+        for char in folder_name:
+            if char in cls.MOVE_FOLDER_FORBIDDEN_CHARS or ord(char) < 32 or ord(char) == 127:
+                raise RecordedVideoMoveError('Invalid', 'フォルダ名に使えない文字が含まれています。(\\ / : * ? " < > | と制御文字)')
+        if folder_name.split('.')[0].upper() in cls.MOVE_FOLDER_RESERVED_NAMES:
+            raise RecordedVideoMoveError('Invalid', 'このフォルダ名は使えません。(システム予約名)')
+        return folder_name
+
+
+    def __findRecordedFolderOf(self, file_path: anyio.Path) -> anyio.Path | None:
+        """ 指定されたファイルを含む録画フォルダ (設定の recorded_folders のうちの 1 つ) を返す。含むものがなければ None """
+
+        file_path_str = os.path.normpath(str(file_path))
+        for folder in self.recorded_folders:
+            folder_str = os.path.normpath(str(folder))
+            if file_path_str.startswith(folder_str + os.sep):
+                return folder
+        return None
+
+
+    async def listRecordedSubfolders(self) -> list[tuple[str, str]]:
+        """
+        録画フォルダ直下にあるサブフォルダの (名前, フルパス) の一覧を返す
+        (空のフォルダも含む。隠しフォルダ・ゴミ箱・シンボリックリンクは除く)
+        """
+
+        result: list[tuple[str, str]] = []
+        for root in self.recorded_folders:
+            if not await root.is_dir():
+                continue
+            async for entry in root.iterdir():
+                name = entry.name
+                if name.startswith('.') or name == 'lost+found':
+                    continue
+                if await entry.is_symlink():
+                    continue
+                if await entry.is_dir():
+                    result.append((name, str(entry)))
+        result.sort(key=lambda item: item[0])
+        return result
+
+
+    async def moveRecordedVideo(self, recorded_video_id: int, folder_name: str) -> tuple[str, str]:
+        """
+        録画ファイルを、同じ録画フォルダ直下の指定名のフォルダ (なければ作成) へ移動する
+        DB の録画番組 ID・メタデータ・サムネイルはそのまま引き継ぐ (ファイル監視による削除→再登録を避けるため、
+        監視処理と同じファイルパスごとのロックを取り、DB のパスを先に更新してからファイルを移動する)
+        付属ファイル (.program.txt / .err) も一緒に移動する
+
+        Args:
+            recorded_video_id (int): 移動する RecordedVideo の ID
+            folder_name (str): 移動先フォルダ名 (録画フォルダ直下の 1 階層のみ)
+
+        Raises:
+            RecordedVideoMoveError: 移動できない場合 (kind で種類を区別する)
+
+        Returns:
+            tuple[str, str]: (移動前のパス, 移動後のパス)
+        """
+
+        folder_name = self.validateMoveFolderName(folder_name)
+
+        db_recorded_video = await RecordedVideo.get_or_none(id=recorded_video_id)
+        if db_recorded_video is None:
+            raise RecordedVideoMoveError('NotFound', '録画ファイルの情報が見つかりません。')
+        old_path = anyio.Path(db_recorded_video.file_path)
+        root = self.__findRecordedFolderOf(old_path)
+        if root is None:
+            raise RecordedVideoMoveError('Invalid', 'この録画ファイルは録画フォルダの外にあるため移動できません。')
+        new_dir = root / folder_name
+        new_path = new_dir / old_path.name
+        if new_path == old_path:
+            return str(old_path), str(new_path)
+
+        # 監視処理と同じロックを、パス順に取得する (デッドロック防止)
+        lock_paths = sorted({old_path, new_path}, key=str)
+        locks: list[asyncio.Lock] = []
+        async with self._file_locks_dict_lock:
+            for lock_path in lock_paths:
+                if lock_path not in self._file_locks:
+                    self._file_locks[lock_path] = asyncio.Lock()
+                locks.append(self._file_locks[lock_path])
+        try:
+            async with contextlib.AsyncExitStack() as stack:
+                for lock in locks:
+                    await stack.enter_async_context(lock)
+                return await self.__moveRecordedVideoLocked(recorded_video_id, old_path, new_dir, new_path)
+        finally:
+            async with self._file_locks_dict_lock:
+                for lock_path, lock in zip(lock_paths, locks):
+                    if lock_path in self._file_locks and not lock.locked():
+                        self._file_locks.pop(lock_path, None)
+
+
+    async def __moveRecordedVideoLocked(
+        self,
+        recorded_video_id: int,
+        old_path: anyio.Path,
+        new_dir: anyio.Path,
+        new_path: anyio.Path,
+    ) -> tuple[str, str]:
+        """ moveRecordedVideo() の本体 (呼び出し側で old_path / new_path のロックを取得済みであること) """
+
+        # ロック取得後に状態を再確認する
+        db_recorded_video = await RecordedVideo.get_or_none(id=recorded_video_id)
+        if db_recorded_video is None:
+            raise RecordedVideoMoveError('NotFound', '録画ファイルの情報が見つかりません。')
+        if db_recorded_video.file_path != str(old_path):
+            raise RecordedVideoMoveError('Conflict', '録画ファイルの場所が他の処理で変更されました。一覧を更新してやり直してください。')
+        if db_recorded_video.status != 'Recorded' or old_path in self._recording_files:
+            raise RecordedVideoMoveError('Busy', '録画中または解析中の録画は移動できません。')
+        if not await old_path.is_file():
+            raise RecordedVideoMoveError('NotFound', '録画ファイルが見つかりません。')
+
+        # 移動するファイルの組 (本体 + 存在する付属ファイル)
+        pairs: list[tuple[anyio.Path, anyio.Path]] = [(old_path, new_path)]
+        for suffix in self.MOVE_SIDECAR_SUFFIXES:
+            sidecar_src = anyio.Path(f'{old_path}{suffix}')
+            if await sidecar_src.is_file():
+                pairs.append((sidecar_src, anyio.Path(f'{new_path}{suffix}')))
+
+        # 移動先に同名のファイル・DB レコードがあれば上書きせず中止
+        for _, dst in pairs:
+            if await dst.exists():
+                raise RecordedVideoMoveError('Conflict', f'移動先に同名のファイルが既にあります。({dst.name})')
+        if await RecordedVideo.filter(file_path=str(new_path)).exists():
+            raise RecordedVideoMoveError('Conflict', '移動先に同じパスの録画が既に登録されています。')
+
+        # 移動先フォルダ (なければ作成)
+        created_dir = False
+        if await new_dir.is_symlink():
+            raise RecordedVideoMoveError('Invalid', '移動先フォルダがシンボリックリンクのため使えません。')
+        if await new_dir.exists():
+            if not await new_dir.is_dir():
+                raise RecordedVideoMoveError('Invalid', '同名のファイルがあるため、このフォルダ名は使えません。')
+        else:
+            try:
+                await new_dir.mkdir()
+                created_dir = True
+            except Exception as ex:
+                logging.error(f'[MoveAPI] Failed to create folder: {new_dir}', exc_info=ex)
+                raise RecordedVideoMoveError('Failed', f'フォルダを作成できませんでした。({ex!s})')
+
+        async def rollback_dir() -> None:
+            if created_dir:
+                try:
+                    await new_dir.rmdir()
+                except Exception as ex:
+                    logging.warning(f'[MoveAPI] Failed to remove the created folder: {new_dir}', exc_info=ex)
+
+        # DB のパスを先に更新する (ファイル移動後の監視イベントが、既存レコードに紐づくようにするため)
+        try:
+            await RecordedVideo.filter(id=recorded_video_id).update(file_path=str(new_path))
+        except Exception as ex:
+            logging.error(f'[MoveAPI] Failed to update DB path: id={recorded_video_id}', exc_info=ex)
+            await rollback_dir()
+            raise RecordedVideoMoveError('Failed', f'データベースを更新できませんでした。({ex!s})')
+
+        # ファイル移動 (失敗したら、移動済みのファイルと DB を元に戻す)
+        done: list[tuple[anyio.Path, anyio.Path]] = []
+        try:
+            for src, dst in pairs:
+                await src.rename(dst)
+                done.append((src, dst))
+        except Exception as ex:
+            logging.error(f'[MoveAPI] Failed to move files: id={recorded_video_id} {old_path} -> {new_path}', exc_info=ex)
+            for src, dst in reversed(done):
+                try:
+                    await dst.rename(src)
+                except Exception as rollback_ex:
+                    logging.error(f'[MoveAPI] Failed to roll back file: {dst} -> {src}', exc_info=rollback_ex)
+            try:
+                await RecordedVideo.filter(id=recorded_video_id).update(file_path=str(old_path))
+            except Exception as rollback_ex:
+                logging.error(f'[MoveAPI] Failed to roll back DB path: id={recorded_video_id}', exc_info=rollback_ex)
+            await rollback_dir()
+            raise RecordedVideoMoveError('Failed', f'ファイルを移動できませんでした。({ex!s})')
+
+        # 移動後のファイル情報で DB を更新する (監視処理が「変更なし」と判断して再解析を省略できるようにする)
+        try:
+            stat = await new_path.stat()
+            await RecordedVideo.filter(id=recorded_video_id).update(
+                file_created_at = datetime.fromtimestamp(stat.st_ctime, tz=JST),
+                file_modified_at = datetime.fromtimestamp(stat.st_mtime, tz=JST),
+                file_size = stat.st_size,
+            )
+        except Exception as ex:
+            logging.warning(f'[MoveAPI] Moved, but failed to refresh file info in DB: id={recorded_video_id}', exc_info=ex)
+
+        logging.info(f'[MoveAPI] Moved: id={recorded_video_id} {old_path} -> {new_path}')
+        return str(old_path), str(new_path)
+
+    # ---- [改造: 録画の手動フォルダ移動] ここまで ----
 
 
     async def __checkRecordingCompletion(self) -> None:

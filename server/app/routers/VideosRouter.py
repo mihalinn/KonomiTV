@@ -24,7 +24,7 @@ from tortoise import connections
 
 from app import logging, schemas
 from app.constants import STATIC_DIR, THUMBNAILS_DIR
-from app.metadata.RecordedScanTask import RecordedScanTask
+from app.metadata.RecordedScanTask import RecordedScanTask, RecordedVideoMoveError
 from app.metadata.ThumbnailGenerator import ThumbnailGenerator
 from app.metadata.TSInfoAnalyzer import TSInfoAnalyzer
 from app.models.RecordedProgram import RecordedProgram
@@ -677,6 +677,24 @@ async def VideosSearchAPI(
 
 
 @router.get(
+    '/folders',
+    summary = '録画フォルダ内のサブフォルダ一覧 API',
+    response_description = '録画フォルダ直下のサブフォルダの一覧。',
+    response_model = schemas.VideoFolders,
+)
+async def VideoFoldersAPI(
+    current_user: Annotated[User, Depends(GetCurrentAdminUser)],
+):
+    """
+    録画フォルダ直下にあるサブフォルダの一覧を取得する (空のフォルダも含む) 。
+    録画ファイルの移動先を選ぶために使う。管理者アカウントでないとアクセスできない。
+    """
+
+    folders = await RecordedScanTask().listRecordedSubfolders()
+    return schemas.VideoFolders(folders=[schemas.VideoFolder(name=name, path=path) for name, path in folders])
+
+
+@router.get(
     '/{video_id}',
     summary = '録画番組 API',
     response_description = '録画番組の情報。',
@@ -930,6 +948,46 @@ async def VideoThumbnailRegenerateAPI(
             status_code = status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail = f'Failed to regenerate thumbnails: {ex!s}',
         )
+
+
+@router.post(
+    '/{video_id}/move',
+    summary = '録画ファイル移動 API',
+    response_description = '移動前後のファイルパス。',
+    response_model = schemas.VideoMoveResult,
+)
+async def VideoMoveAPI(
+    current_user: Annotated[User, Depends(GetCurrentAdminUser)],
+    recorded_program: Annotated[RecordedProgram, Depends(GetRecordedProgram)],
+    move_request: schemas.VideoMoveRequest,
+):
+    """
+    指定された録画番組のファイルを、同じ録画フォルダ直下の指定名のフォルダ (なければ作成) へ移動する。
+    録画番組 ID・メタデータ・サムネイルはそのまま引き継がれる。.program.txt / .err などの付属ファイルも一緒に移動する。
+    録画中のもの、移動先に同名ファイルがあるもの、フォルダ名として使えない文字を含むものは移動できない。
+
+    JWT エンコードされたアクセストークンがリクエストの Authorization: Bearer に設定されていて、かつ管理者アカウントでないとアクセスできない。
+    """
+
+    try:
+        old_path, new_path = await RecordedScanTask().moveRecordedVideo(
+            recorded_program.recorded_video.id,
+            move_request.folder,
+        )
+    except RecordedVideoMoveError as ex:
+        status_code_map = {
+            'NotFound': status.HTTP_404_NOT_FOUND,
+            'Invalid': status.HTTP_400_BAD_REQUEST,
+            'Conflict': status.HTTP_409_CONFLICT,
+            'Busy': status.HTTP_409_CONFLICT,
+            'Failed': status.HTTP_500_INTERNAL_SERVER_ERROR,
+        }
+        raise HTTPException(
+            status_code = status_code_map[ex.kind],
+            detail = ex.message,
+        )
+
+    return schemas.VideoMoveResult(id=recorded_program.id, old_path=old_path, new_path=new_path)
 
 
 @router.delete(
