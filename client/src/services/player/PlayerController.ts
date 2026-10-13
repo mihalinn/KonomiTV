@@ -1518,8 +1518,10 @@ class PlayerController {
                     return;
                 }
                 // 動画終了間際の CM はスキップ対象外 (CM マーカー・自動スキップと同じ扱い)
+                // 終了の余白がマイナスの場合、スキップ先に着いた時点でボタンを消す (スキップ先は CM 区間内になる)
+                const end_margin = Math.min(settings_store.settings.cm_skip_end_margin, 0);
                 const section = cm_sections.find(section => {
-                    return current_time >= section.start_time && current_time < section.end_time && section.end_time <= video_duration - 2;
+                    return current_time >= section.start_time && current_time < section.end_time + end_margin && section.end_time <= video_duration - 2;
                 });
                 if (!section) {
                     removeCMSkipManualButton();
@@ -1572,7 +1574,8 @@ class PlayerController {
                         if (section.end_time > video_duration - 2) {
                             continue;
                         }
-                        if (current_time >= section.start_time + start_margin && current_time < section.end_time) {
+                        // 終了の余白がマイナスの場合、スキップ先に着いた後に再びスキップし続けないようにする
+                        if (current_time >= section.start_time + start_margin && current_time < section.end_time + Math.min(end_margin, 0)) {
                             const target_time = Math.max(section.end_time + end_margin, current_time);
                             this.player.seek(target_time);
                             cm_skip_last_time = target_time;

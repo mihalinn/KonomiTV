@@ -176,10 +176,10 @@
                 <div class="settings__item-heading">スキップ終了の余白: {{settingsStore.settings.cm_skip_end_margin.toFixed(1)}} 秒</div>
                 <div class="settings__item-label">
                     CM の終了位置からさらにこの秒数だけ先に進めます。デフォルトは 0 秒です。<br>
-                    CM の最後が少し見えてしまう場合は大きくしてください。<br>
+                    CM の最後が少し見えてしまう場合は大きく、本編の頭が切れてしまう場合はマイナスにしてください (最大 -3 秒)。<br>
                 </div>
                 <v-slider class="settings__item-form" color="primary" show-ticks="always" thumb-label hide-details
-                    :min="0" :max="5" :step="0.1"
+                    :min="-3" :max="5" :step="0.1"
                     :density="is_form_dense ? 'compact' : 'default'"
                     v-model="settingsStore.settings.cm_skip_end_margin">
                 </v-slider>
