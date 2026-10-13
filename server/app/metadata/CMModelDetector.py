@@ -63,9 +63,22 @@ class CMModelDetector:
 
         try:
             import onnxruntime
+            CMModelDetector.preloadGPULibraries(onnxruntime)
             return list(onnxruntime.get_available_providers())
         except ImportError:
             return []
+
+
+    @staticmethod
+    def preloadGPULibraries(onnxruntime: Any) -> None:
+        """ pip でインストールした CUDA / cuDNN ライブラリを事前に読み込む (GPU 版 onnxruntime が見つけられるようにする) """
+
+        preload_dlls = getattr(onnxruntime, 'preload_dlls', None)
+        if preload_dlls is not None:
+            try:
+                preload_dlls()
+            except Exception:
+                pass
 
 
     @classmethod
@@ -98,6 +111,7 @@ class CMModelDetector:
                 options = onnxruntime.SessionOptions()
                 options.intra_op_num_threads = threads
                 options.log_severity_level = 3
+                cls.preloadGPULibraries(onnxruntime)
                 available = onnxruntime.get_available_providers()
                 providers: list[str] = []
                 if device == 'GPU':
