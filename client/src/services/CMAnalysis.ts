@@ -13,6 +13,7 @@ export interface ICMAnalysisStatus {
     providers: string[];
     model_ready: boolean;
     model_downloadable: boolean;
+    model_version: string;
     model_download: {
         state: 'Idle' | 'Downloading' | 'Completed' | 'Failed';
         progress: number;
@@ -134,6 +135,22 @@ class CMAnalysis {
         return response.data;
     }
 
+
+
+    /**
+     * 指定した解析バージョンのうち、現在の AI と同じバージョンで解析済みのものの件数を返す
+     * @param analysis_versions 録画ファイルごとの CM 解析バージョン
+     * @returns 同じバージョンで解析済みの件数と、現在の AI のバージョン表記
+     */
+    static async countAnalyzedWithCurrentVersion(analysis_versions: (string | null)[]): Promise<{count: number; label: string}> {
+
+        const status = await CMAnalysis.fetchStatus(true);
+        if (status === null) {
+            return {count: 0, label: ''};
+        }
+        const label = `AI ${status.model_version}`;
+        return {count: analysis_versions.filter((version) => version === label).length, label};
+    }
 
 
     /**

@@ -88,6 +88,8 @@
                     @toggleSelect="toggleSelect(program)" @deleted="handleProgramDeleted" />
             </div>
         </div>
+        <CMReanalyzeDialog v-model="show_cm_reanalyze_confirmation" :count="cm_same_version_count"
+            :total="selected_video_ids.size" :label="cm_current_version_label" @confirm="executeAnalyzeSelected" />
         <div class="recorded-program-list__pagination" v-if="!hidePagination && displayTotal > 0">
             <v-pagination
                 v-model="current_page"
@@ -105,6 +107,7 @@
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
+import CMReanalyzeDialog from '@/components/Videos/CMReanalyzeDialog.vue';
 import RecordedProgram from '@/components/Videos/RecordedProgram.vue';
 import CMAnalysis from '@/services/CMAnalysis';
 import { IRecordedProgram, MylistSortOrder, SortOrder } from '@/services/Videos';
@@ -194,6 +197,12 @@ const user_store = useUserStore();
 const select_mode = ref(false);
 // 選択中の録画ファイル (RecordedVideo) の ID (ページをまたいでも保持する)
 const selected_video_ids = ref<Set<number>>(new Set());
+// 選択中の録画ファイルごとの CM 解析バージョン (再解析の確認用)
+const selected_video_versions = new Map<number, string | null>();
+// CM 再解析確認ダイアログ
+const show_cm_reanalyze_confirmation = ref(false);
+const cm_same_version_count = ref(0);
+const cm_current_version_label = ref('');
 // CM 解析は管理者のみ実行できる。ヘッダーを表示しない一覧・視聴履歴・「もっと見る」付きの一覧では選択モードを出さない
 const canSelect = computed(() => {
     return user_store.user?.is_admin === true && !props.hideHeader && !props.forWatchedHistory && !props.showMoreButton;
@@ -202,6 +211,7 @@ const canSelect = computed(() => {
 const toggleSelectMode = () => {
     select_mode.value = !select_mode.value;
     selected_video_ids.value.clear();
+    selected_video_versions.clear();
 };
 
 const toggleSelect = (program: IRecordedProgram) => {
@@ -210,6 +220,7 @@ const toggleSelect = (program: IRecordedProgram) => {
         selected_video_ids.value.delete(video_id);
     } else {
         selected_video_ids.value.add(video_id);
+        selected_video_versions.set(video_id, program.recorded_video.cm_analysis_version);
     }
 };
 
@@ -218,14 +229,27 @@ const selectAllInPage = () => {
     for (const program of displayPrograms.value) {
         if (program.recorded_video.status === 'Recorded') {
             selected_video_ids.value.add(program.recorded_video.id);
+            selected_video_versions.set(program.recorded_video.id, program.recorded_video.cm_analysis_version);
         }
     }
 };
 
 const analyzeSelected = async () => {
+    const versions = [...selected_video_ids.value].map((id) => selected_video_versions.get(id) ?? null);
+    const result = await CMAnalysis.countAnalyzedWithCurrentVersion(versions);
+    if (result.count > 0) {
+        cm_same_version_count.value = result.count;
+        cm_current_version_label.value = result.label;
+        show_cm_reanalyze_confirmation.value = true;
+        return;
+    }
+    await executeAnalyzeSelected();
+};
+const executeAnalyzeSelected = async () => {
     await CMAnalysis.requestAnalysis([...selected_video_ids.value]);
     select_mode.value = false;
     selected_video_ids.value.clear();
+    selected_video_versions.clear();
 };
 
 // 録画ファイルが削除された時の処理

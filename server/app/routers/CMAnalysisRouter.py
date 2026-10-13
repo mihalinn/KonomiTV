@@ -6,6 +6,7 @@ from fastapi.exceptions import HTTPException
 
 from app import schemas
 from app.config import Config, SaveCMDetectionConfig
+from app.constants import CM_DETECTION_MODEL_VERSION
 from app.metadata.CMAnalysisQueue import CMAnalysisQueue
 from app.metadata.CMModelDetector import CMModelDetector
 from app.models.User import User
@@ -33,6 +34,7 @@ def BuildStatus() -> schemas.CMAnalysisStatus:
         providers = CMModelDetector.getAvailableProviders(),
         model_ready = CMModelDetector.isModelReady(),
         model_downloadable = CMModelDetector.isDownloadable(),
+        model_version = CM_DETECTION_MODEL_VERSION,
         model_download = CMModelDetector.download_status,
         pending_count = len([job for job in jobs if job.state == 'Pending']),
         running_count = len([job for job in jobs if job.state == 'Running']),

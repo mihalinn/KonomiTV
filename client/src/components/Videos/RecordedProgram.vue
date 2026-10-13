@@ -143,6 +143,10 @@
     </router-link>
     <RecordedFileInfoDialog :program="program" v-model:show="show_video_info" />
 
+    <!-- CM 再解析確認ダイアログ -->
+    <CMReanalyzeDialog v-model="show_cm_reanalyze_confirmation" :count="1" :total="1" :label="cm_current_version_label"
+        @confirm="confirmAnalyzeCM" />
+
     <!-- 録画ファイル削除確認ダイアログ -->
     <v-dialog max-width="750" v-model="show_delete_confirmation">
         <v-card>
@@ -172,6 +176,7 @@
 
 import { ref, computed } from 'vue';
 
+import CMReanalyzeDialog from '@/components/Videos/CMReanalyzeDialog.vue';
 import RecordedFileInfoDialog from '@/components/Videos/Dialogs/RecordedFileInfoDialog.vue';
 import Message from '@/message';
 import CMAnalysis from '@/services/CMAnalysis';
@@ -204,6 +209,9 @@ const emit = defineEmits<{
 const show_video_info = ref(false);
 // 削除確認ダイアログの表示状態
 const show_delete_confirmation = ref(false);
+// CM 再解析確認ダイアログの表示状態と、現在の AI のバージョン表記
+const show_cm_reanalyze_confirmation = ref(false);
+const cm_current_version_label = ref('');
 
 // 録画ファイルのダウンロード (location.href を変更し、ダウンロード自体はブラウザに任せる)
 const downloadVideo = () => {
@@ -220,7 +228,17 @@ const reanalyzeVideo = async () => {
 };
 
 // CM 解析 (この録画番組だけを CM 解析キューに追加する)
+// すでに現在と同じバージョンの AI で解析済みの場合は、確認ダイアログを挟む
 const analyzeCM = async () => {
+    const result = await CMAnalysis.countAnalyzedWithCurrentVersion([props.program.recorded_video.cm_analysis_version]);
+    if (result.count > 0) {
+        cm_current_version_label.value = result.label;
+        show_cm_reanalyze_confirmation.value = true;
+        return;
+    }
+    await confirmAnalyzeCM();
+};
+const confirmAnalyzeCM = async () => {
     await CMAnalysis.requestAnalysis([props.program.recorded_video.id]);
 };
 
