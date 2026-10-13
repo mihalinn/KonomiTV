@@ -1507,7 +1507,7 @@ class PlayerController {
             }
 
             // 手動スキップ用ボタン (CM 区間の再生中だけ表示する。自動スキップの設定とは無関係に使える)
-            // 視聴者が「CM ではない」と判断した CM 区間 (開始時刻で管理し、この再生中だけ有効。自動スキップ・ボタン・シークバーの色から外す)
+            // 視聴者が「CM ではない」と判断した CM 区間 (開始時刻で管理し、この再生中だけ有効。ボタンと自動スキップから外す。シークバーの表示は残す)
             const cm_dismissed_starts = new Set<number>();
             let cm_skip_manual_button: HTMLElement | null = null;
             let cm_skip_manual_section_start: number | null = null;
@@ -1552,19 +1552,17 @@ class PlayerController {
                     }
                     removeCMSkipManualButton();
                 });
-                // 「×」: この区間は CM ではないと判断した時に、この CM 区間だけスキップの対象から外す
+                // 「×」: この区間は CM ではないと判断した時に、この CM 区間だけスキップボタンを非表示にする (シークバーの表示は残す)
                 const dismiss_button = document.createElement('button');
                 dismiss_button.type = 'button';
                 dismiss_button.textContent = '×';
-                dismiss_button.title = 'この区間は CM ではない (この区間だけスキップしない)';
+                dismiss_button.title = 'この区間は CM ではない (この区間のスキップボタンを非表示にする)';
                 dismiss_button.style.cssText = 'padding: 8px 12px; border: none; border-left: 1px solid rgba(255, 255, 255, 0.3); ' +
                     'color: #fff; background: transparent; font-size: 16px; line-height: 1; cursor: pointer;';
                 dismiss_button.addEventListener('click', (event) => {
                     event.stopPropagation();
                     cm_dismissed_starts.add(section.start_time);
-                    this.player?.container.querySelectorAll<HTMLElement>(`.dplayer-cm-section[data-cm-start="${section.start_time}"]`)
-                        .forEach((element) => element.remove());
-                    this.player?.notice('この区間は CM ではないものとして、スキップしません', 2500);
+                    this.player?.notice('この区間のスキップボタンを非表示にしました (この区間は自動スキップもしません)', 2500);
                     removeCMSkipManualButton();
                 });
                 wrapper.appendChild(button);
