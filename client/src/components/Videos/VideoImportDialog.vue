@@ -14,8 +14,25 @@
 
                 <input ref="fileInput" type="file" multiple hidden
                     accept=".mp4,.m4v,.mkv,.webm,.ts,.m2ts,.m2t,.mts,.mov,.avi,.flv,.wmv,.mpg,.mpeg,video/*"
-                    @change="onFilesSelected">
-                <v-btn variant="tonal" color="primary" @click="fileInput?.click()">
+                    @change="onFilesSelected($event, false)">
+                <input ref="fileInputAny" type="file" multiple hidden
+                    @change="onFilesSelected($event, true)">
+                <template v-if="isMobile">
+                    <div class="d-flex flex-wrap" style="gap: 8px;">
+                        <v-btn variant="tonal" color="primary" @click="fileInputAny?.click()">
+                            <Icon icon="fluent:folder-open-20-regular" width="18px" height="18px" />
+                            <span class="ml-1">ファイルアプリから選ぶ</span>
+                        </v-btn>
+                        <v-btn variant="tonal" color="primary" @click="fileInput?.click()">
+                            <Icon icon="fluent:image-multiple-20-regular" width="18px" height="18px" />
+                            <span class="ml-1">アルバムから選ぶ</span>
+                        </v-btn>
+                    </div>
+                    <div v-if="isIOS" class="text-caption text-text-darken-1 mt-2">
+                        iPhone / iPad では、表示されたメニューの「ファイルを選択」を押すとファイルアプリが開きます。
+                    </div>
+                </template>
+                <v-btn v-else variant="tonal" color="primary" @click="fileInput?.click()">
                     <Icon icon="fluent:document-add-20-regular" width="18px" height="18px" />
                     <span class="ml-1">ファイルを選ぶ</span>
                 </v-btn>
@@ -121,6 +138,11 @@ const CHUNK_SIZE = 8 * 1024 * 1024;
 const MAX_TITLE_BYTES = 200;
 
 const fileInput = ref<HTMLInputElement | null>(null);
+const fileInputAny = ref<HTMLInputElement | null>(null);
+const userAgent = navigator.userAgent;
+const isIOS = /iPhone|iPad|iPod/.test(userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isMobile = isIOS || /Android/.test(userAgent) || window.matchMedia('(pointer: coarse)').matches;
+const VIDEO_EXTENSIONS = ['mp4', 'm4v', 'mkv', 'webm', 'ts', 'm2ts', 'm2t', 'mts', 'mov', 'avi', 'flv', 'wmv', 'mpg', 'mpeg'];
 const items = ref<IImportItem[]>([]);
 const jobs = ref<IVideoImportJob[]>([]);
 const existingFolders = ref<string[]>([]);
@@ -200,10 +222,20 @@ const toDateInput = (time: number): string => {
 const formatSize = (size: number): string => size >= 1024 * 1024 * 1024
     ? `${(size / 1024 / 1024 / 1024).toFixed(2)}GB` : `${Math.round(size / 1024 / 1024)}MB`;
 
-const onFilesSelected = (event: Event) => {
+const onFilesSelected = (event: Event, checkExtension: boolean) => {
     const input = event.target as HTMLInputElement;
-    const files = Array.from(input.files ?? []);
+    let files = Array.from(input.files ?? []);
     input.value = '';
+    if (checkExtension) {
+        const accepted = files.filter(file => {
+            const ext = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : '';
+            return VIDEO_EXTENSIONS.includes(ext) || file.type.startsWith('video/');
+        });
+        if (accepted.length < files.length) {
+            Message.warning(`対応していない形式のファイルは追加しませんでした。(${files.length - accepted.length}件)`);
+        }
+        files = accepted;
+    }
     files.sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true }));
     for (const file of files) {
         const title = makeTitle(file.name);
