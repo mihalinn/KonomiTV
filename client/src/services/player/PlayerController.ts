@@ -1497,6 +1497,7 @@ class PlayerController {
                         }
                         const element = document.createElement('div');
                         element.className = 'dplayer-cm-section';
+                        element.dataset.cmStart = String(section.start_time);
                         element.style.cssText = 'position: absolute; top: 0; bottom: 0; z-index: 1; pointer-events: none; ' +
                             'background: rgba(255, 193, 7, 0.85); ' +
                             `left: ${(start / video_duration) * 100}%; width: ${((end - start) / video_duration) * 100}%;`;
@@ -1506,7 +1507,9 @@ class PlayerController {
             }
 
             // 手動スキップ用ボタン (CM 区間の再生中だけ表示する。自動スキップの設定とは無関係に使える)
-            let cm_skip_manual_button: HTMLButtonElement | null = null;
+            // 視聴者が「CM ではない」と判断した CM 区間 (開始時刻で管理し、この再生中だけ有効。自動スキップ・ボタン・シークバーの色から外す)
+            const cm_dismissed_starts = new Set<number>();
+            let cm_skip_manual_button: HTMLElement | null = null;
             let cm_skip_manual_section_start: number | null = null;
             const removeCMSkipManualButton = () => {
                 cm_skip_manual_button?.remove();
@@ -1521,7 +1524,7 @@ class PlayerController {
                 // 終了の余白がマイナスの場合、スキップ先に着いた時点でボタンを消す (スキップ先は CM 区間内になる)
                 const end_margin = Math.min(settings_store.settings.cm_skip_end_margin, 0);
                 const section = cm_sections.find(section => {
-                    return current_time >= section.start_time && current_time < section.end_time + end_margin && section.end_time <= video_duration - 2;
+                    return !cm_dismissed_starts.has(section.start_time) && current_time >= section.start_time && current_time < section.end_time + end_margin && section.end_time <= video_duration - 2;
                 });
                 if (!section) {
                     removeCMSkipManualButton();
@@ -1531,11 +1534,13 @@ class PlayerController {
                     return;
                 }
                 removeCMSkipManualButton();
+                const wrapper = document.createElement('div');
+                wrapper.style.cssText = 'position: absolute; right: 16px; bottom: 72px; z-index: 20; display: flex; ' +
+                    'border-radius: 6px; overflow: hidden; background: rgba(0, 0, 0, 0.75);';
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.textContent = 'CM をスキップ';
-                button.style.cssText = 'position: absolute; right: 16px; bottom: 72px; z-index: 20; padding: 8px 14px; ' +
-                    'border: none; border-radius: 6px; color: #fff; background: rgba(0, 0, 0, 0.75); ' +
+                button.style.cssText = 'padding: 8px 14px; border: none; color: #fff; background: transparent; ' +
                     'font-size: 14px; cursor: pointer;';
                 button.addEventListener('click', (event) => {
                     event.stopPropagation();
@@ -1547,8 +1552,25 @@ class PlayerController {
                     }
                     removeCMSkipManualButton();
                 });
-                this.player.container.appendChild(button);
-                cm_skip_manual_button = button;
+                // 「×」: この区間は CM ではないと判断した時に、この CM 区間だけスキップの対象から外す
+                const dismiss_button = document.createElement('button');
+                dismiss_button.type = 'button';
+                dismiss_button.textContent = '×';
+                dismiss_button.title = 'この区間は CM ではない (この区間だけスキップしない)';
+                dismiss_button.style.cssText = 'padding: 8px 12px; border: none; border-left: 1px solid rgba(255, 255, 255, 0.3); ' +
+                    'color: #fff; background: transparent; font-size: 16px; line-height: 1; cursor: pointer;';
+                dismiss_button.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    cm_dismissed_starts.add(section.start_time);
+                    this.player?.container.querySelectorAll<HTMLElement>(`.dplayer-cm-section[data-cm-start="${section.start_time}"]`)
+                        .forEach((element) => element.remove());
+                    this.player?.notice('この区間は CM ではないものとして、スキップしません', 2500);
+                    removeCMSkipManualButton();
+                });
+                wrapper.appendChild(button);
+                wrapper.appendChild(dismiss_button);
+                this.player.container.appendChild(wrapper);
+                cm_skip_manual_button = wrapper;
                 cm_skip_manual_section_start = section.start_time;
             };
             if (cm_sections.length > 0) {
@@ -1570,8 +1592,8 @@ class PlayerController {
                     const start_margin = settings_store.settings.cm_skip_start_margin;
                     const end_margin = settings_store.settings.cm_skip_end_margin;
                     for (const section of cm_sections) {
-                        // 動画終了間際の CM はスキップしない (CM マーカーと同じ扱い)
-                        if (section.end_time > video_duration - 2) {
+                        // 動画終了間際の CM と、視聴者が「CM ではない」とした区間はスキップしない
+                        if (section.end_time > video_duration - 2 || cm_dismissed_starts.has(section.start_time)) {
                             continue;
                         }
                         // 終了の余白がマイナスの場合、スキップ先に着いた後に再びスキップし続けないようにする
