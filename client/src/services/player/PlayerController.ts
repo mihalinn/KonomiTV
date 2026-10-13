@@ -277,34 +277,6 @@ class PlayerController {
             localStorage.setItem('dplayer-danmaku-opacity', '0.5');
         }
 
-        // CM 区間からハイライトマーカーを作成する
-        // TODO: DPlayer のマーカー機能はまともに実装されていないため、将来的にはレコーダーのように CM 区間のシークバーを
-        // 暗くした上で CM 区間を自動スキップできるようにしたい
-        const highlights: Array<{text: string, time: number}> = [];
-        if (this.playback_mode === 'Video' && player_store.recorded_program?.recorded_video?.cm_sections) {
-            const cm_sections = player_store.recorded_program.recorded_video.cm_sections;
-            const videoDuration = player_store.recorded_program.recorded_video.duration;
-            const endThreshold = videoDuration - 2;
-
-            for (const section of cm_sections) {
-                // CM 開始位置に「CM」マーカーを追加（動画終了2秒以内は除外）
-                if (section.start_time <= endThreshold) {
-                    highlights.push({
-                        text: 'CM',
-                        time: section.start_time
-                    });
-                }
-
-                // CM 終了位置に「本編」マーカーを追加（動画終了2秒以内は除外）
-                if (section.end_time <= endThreshold) {
-                    highlights.push({
-                        text: '本編',
-                        time: section.end_time
-                    });
-                }
-            }
-            console.log('\u001b[31m[PlayerController] Added CM section markers:', highlights);
-        }
 
         // mpegts.js と hls.js を window 直下に入れる
         // こうしないと DPlayer が mpegts.js / hls.js を認識できない
@@ -339,8 +311,6 @@ class PlayerController {
             volume: 1.0,
             // 再生速度の設定 (x1.1 を追加)
             playbackSpeed: [0.25, 0.5, 0.75, 1, 1.1, 1.25, 1.5, 1.75, 2],
-            // シークバー上のハイライトマーカー（CM区間など）
-            highlight: highlights.length > 0 ? highlights : undefined,
 
             // 動画の設定
             video: (() => {
@@ -1515,38 +1485,26 @@ class PlayerController {
             const cm_sections = player_store.recorded_program?.recorded_video?.cm_sections ?? [];
             const video_duration = player_store.recorded_program?.recorded_video?.duration ?? 0;
             let cm_skip_last_time = -1;
-            // 「元に戻す」を押した CM 区間の開始位置 (この区間を出るまで再スキップしない)
-            let cm_skip_undone_start: number | null = null;
-            let cm_skip_undo_button: HTMLButtonElement | null = null;
-            let cm_skip_undo_button_timer_id = 0;
-            const removeCMSkipUndoButton = () => {
-                window.clearTimeout(cm_skip_undo_button_timer_id);
-                cm_skip_undo_button?.remove();
-                cm_skip_undo_button = null;
-            };
-            const showCMSkipUndoButton = (cm_start_time: number) => {
-                if (!this.player) {
-                    return;
-                }
-                removeCMSkipUndoButton();
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.textContent = 'CM をスキップしました - 元に戻す';
-                button.style.cssText = 'position: absolute; left: 16px; bottom: 72px; z-index: 20; padding: 8px 14px; ' +
-                    'border: none; border-radius: 6px; color: #fff; background: rgba(0, 0, 0, 0.75); ' +
-                    'font-size: 14px; cursor: pointer;';
-                button.addEventListener('click', (event) => {
-                    event.stopPropagation();
-                    if (this.player && this.player.video) {
-                        cm_skip_undone_start = cm_start_time;
-                        this.player.seek(cm_start_time);
+            // シークバーの中に CM 区間を色付きで表示する
+            if (cm_sections.length > 0 && video_duration > 0) {
+                const bar = this.player.container.querySelector('.dplayer-bar');
+                if (bar) {
+                    for (const section of cm_sections) {
+                        const start = Math.max(0, Math.min(section.start_time, video_duration));
+                        const end = Math.max(0, Math.min(section.end_time, video_duration));
+                        if (end <= start) {
+                            continue;
+                        }
+                        const element = document.createElement('div');
+                        element.className = 'dplayer-cm-section';
+                        element.style.cssText = 'position: absolute; top: 0; bottom: 0; z-index: 1; pointer-events: none; ' +
+                            'background: rgba(255, 193, 7, 0.85); ' +
+                            `left: ${(start / video_duration) * 100}%; width: ${((end - start) / video_duration) * 100}%;`;
+                        bar.appendChild(element);
                     }
-                    removeCMSkipUndoButton();
-                });
-                this.player.container.appendChild(button);
-                cm_skip_undo_button = button;
-                cm_skip_undo_button_timer_id = window.setTimeout(removeCMSkipUndoButton, 8000);
-            };
+                }
+            }
+
             // 手動スキップ用ボタン (CM 区間の再生中だけ表示する。自動スキップの設定とは無関係に使える)
             let cm_skip_manual_button: HTMLButtonElement | null = null;
             let cm_skip_manual_section_start: number | null = null;
@@ -1584,7 +1542,6 @@ class PlayerController {
                         this.player.seek(target_time);
                         cm_skip_last_time = target_time;
                         this.player.notice('CM をスキップしました', 2000);
-                        showCMSkipUndoButton(section.start_time);
                     }
                     removeCMSkipManualButton();
                 });
@@ -1611,13 +1568,6 @@ class PlayerController {
                     const start_margin = settings_store.settings.cm_skip_start_margin;
                     const end_margin = settings_store.settings.cm_skip_end_margin;
                     for (const section of cm_sections) {
-                        // 元に戻した CM 区間は、区間から出るまで再スキップしない
-                        if (cm_skip_undone_start === section.start_time) {
-                            if (current_time < section.start_time || current_time >= section.end_time) {
-                                cm_skip_undone_start = null;
-                            }
-                            continue;
-                        }
                         // 動画終了間際の CM はスキップしない (CM マーカーと同じ扱い)
                         if (section.end_time > video_duration - 2) {
                             continue;
@@ -1627,7 +1577,6 @@ class PlayerController {
                             this.player.seek(target_time);
                             cm_skip_last_time = target_time;
                             this.player.notice('CM をスキップしました', 2000);
-                            showCMSkipUndoButton(section.start_time);
                             break;
                         }
                     }
