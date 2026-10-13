@@ -198,7 +198,7 @@
                 <div class="settings__item-heading">CM 判定モデル (cm_seq.onnx)</div>
                 <div class="settings__item-label">
                     このプロジェクトで独自に学習した CM 判定モデル (GRU のアンサンブル) です。MIT License で提供します。<br>
-                    Copyright (c) 2026 KonomiTV CM 検出モデルの作者<br>
+                    Copyright (c) 2026 mihalin<br>
                     学習には、作者自身が録画した番組から計算した特徴量だけを使っています。録画映像そのものはモデルに含まれていません。<br>
                 </div>
             </div>
