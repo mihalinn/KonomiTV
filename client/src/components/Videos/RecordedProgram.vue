@@ -48,7 +48,7 @@
                     </div>
                     <div class="recorded-program__content-meta-time">{{ProgramUtils.getProgramTime(program)}}</div>
                 </div>
-                <div v-if="program.recorded_video.cm_sections !== null" class="recorded-program__content-cm">
+                <div v-if="isCMAnalyzed" class="recorded-program__content-cm">
                     <span class="recorded-program__content-cm-badge">
                         CM 解析済み{{program.recorded_video.cm_analysis_version ? ` (${program.recorded_video.cm_analysis_version})` : ''}}
                     </span>
@@ -127,7 +127,7 @@
                             <template v-slot:prepend>
                                 <Icon icon="fluent:fast-forward-20-regular" width="20px" height="20px" />
                             </template>
-                            <v-list-item-title class="ml-3">{{ program.recorded_video.cm_sections === null ? 'CM 解析する' : 'CM を再解析する' }}</v-list-item-title>
+                            <v-list-item-title class="ml-3">{{ isCMAnalyzed ? 'CM を再解析する' : 'CM 解析する' }}</v-list-item-title>
                         </v-list-item>
                         <v-divider></v-divider>
                         <v-list-item @click="showDeleteConfirmation" :disabled="program.recorded_video.status === 'Recording'" class="recorded-program__menu-list-item--danger">
@@ -232,6 +232,13 @@ const regenerateThumbnail = async () => {
         Message.success('サムネイルの再生成が完了しました。');
     }
 };
+
+// CM 解析済みかどうか
+// 未解析でも cm_sections には [] が入るため、区間が 1 つ以上あるか、解析バージョンが記録されているものだけを解析済みとみなす
+const isCMAnalyzed = computed(() => {
+    const recorded_video = props.program.recorded_video;
+    return recorded_video.cm_analysis_version !== null || (recorded_video.cm_sections !== null && recorded_video.cm_sections.length > 0);
+});
 
 // マイリストに追加/削除
 const settingsStore = useSettingsStore();
