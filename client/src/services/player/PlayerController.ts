@@ -1547,6 +1547,51 @@ class PlayerController {
                 cm_skip_undo_button = button;
                 cm_skip_undo_button_timer_id = window.setTimeout(removeCMSkipUndoButton, 8000);
             };
+            // 手動スキップ用ボタン (CM 区間の再生中だけ表示する。自動スキップの設定とは無関係に使える)
+            let cm_skip_manual_button: HTMLButtonElement | null = null;
+            let cm_skip_manual_section_start: number | null = null;
+            const removeCMSkipManualButton = () => {
+                cm_skip_manual_button?.remove();
+                cm_skip_manual_button = null;
+                cm_skip_manual_section_start = null;
+            };
+            const updateCMSkipManualButton = (current_time: number) => {
+                if (!this.player) {
+                    return;
+                }
+                // 動画終了間際の CM はスキップ対象外 (CM マーカー・自動スキップと同じ扱い)
+                const section = cm_sections.find(section => {
+                    return current_time >= section.start_time && current_time < section.end_time && section.end_time <= video_duration - 2;
+                });
+                if (!section) {
+                    removeCMSkipManualButton();
+                    return;
+                }
+                if (cm_skip_manual_section_start === section.start_time) {
+                    return;
+                }
+                removeCMSkipManualButton();
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.textContent = 'CM をスキップ';
+                button.style.cssText = 'position: absolute; right: 16px; bottom: 72px; z-index: 20; padding: 8px 14px; ' +
+                    'border: none; border-radius: 6px; color: #fff; background: rgba(0, 0, 0, 0.75); ' +
+                    'font-size: 14px; cursor: pointer;';
+                button.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    if (this.player && this.player.video) {
+                        const target_time = Math.max(section.end_time + settings_store.settings.cm_skip_end_margin, this.player.video.currentTime);
+                        this.player.seek(target_time);
+                        cm_skip_last_time = target_time;
+                        this.player.notice('CM をスキップしました', 2000);
+                        showCMSkipUndoButton(section.start_time);
+                    }
+                    removeCMSkipManualButton();
+                });
+                this.player.container.appendChild(button);
+                cm_skip_manual_button = button;
+                cm_skip_manual_section_start = section.start_time;
+            };
             if (cm_sections.length > 0) {
                 this.player.on('timeupdate', () => {
                     if (!this.player || !this.player.video) {
@@ -1555,6 +1600,7 @@ class PlayerController {
                     const current_time = this.player.video.currentTime;
                     const last_time = cm_skip_last_time;
                     cm_skip_last_time = current_time;
+                    updateCMSkipManualButton(current_time);
                     if (settings_store.settings.cm_auto_skip !== true) {
                         return;
                     }
