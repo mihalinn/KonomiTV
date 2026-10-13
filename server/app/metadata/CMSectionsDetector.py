@@ -4,12 +4,15 @@ from __future__ import annotations
 import asyncio
 import pathlib
 import time
+from collections.abc import Callable
+from typing import Literal
 
 import anyio
 import typer
 
 from app import logging, schemas
-from app.config import LoadConfig
+from app.config import Config, LoadConfig
+from app.metadata.CMModelDetector import CMModelDetector
 from app.models.RecordedVideo import RecordedVideo
 
 
@@ -46,50 +49,91 @@ class CMSectionsDetector:
             ## .chapter.txt は Amatsukaze でエンコードした際に設定次第で自動生成される
             cm_sections = await self.__detectFromChapterFile()
 
-            # チャプターファイルが存在しない場合、join_logo_scp を使って自前で解析を試みる
-            if not cm_sections:
-                cm_sections = await self.__detectWithJLS()
+            # チャプターファイルがなく、設定で「新規録画を自動で CM 解析する」が有効な場合は、AI 解析のキューに積む
+            ## AI 解析は重い処理のため、ここでは実行せず CMAnalysisQueue が 1 本ずつ順番に処理する
+            ## 結果の保存もキュー側で行うので、ここでは何も保存せず終了する (未解析 = None のまま)
+            if not cm_sections and self.__isAutoAnalysisEnabled():
+                db_recorded_video = await RecordedVideo.get_or_none(file_path=str(self.file_path))
+                if db_recorded_video is not None:
+                    from app.metadata.CMAnalysisQueue import CMAnalysisQueue
+                    await CMAnalysisQueue.enqueue([db_recorded_video.id])
+                    logging.info(f'{self.file_path}: Queued for CM analysis.')
+                    return
 
-            # 自前でも解析できなかった（解析に失敗した）or CM 区間が1つも検出されなかった場合、
+            # チャプターファイルがなく、AI 解析も行わない場合 (CM 検出が無効・新規録画の自動解析が無効など)、
             # バックグラウンド解析処理が再度実行された際の再解析を回避するために [] を設定する
             ## [] は解析したが CM 区間がなかった/検出に失敗したことを表す
-            ## CM 区間解析はかなり計算コストが高い処理のため、一度解析に失敗した録画ファイルは再解析しない
+            ## 既存の録画は、ユーザーが明示的に「CM 解析する」を実行したときだけ AI 解析される
             if cm_sections is None:
                 cm_sections = []
 
-            # 検出結果をログに出力
-            for cm_section in cm_sections:
-                logging.debug(f'{self.file_path}: CM section detected: {cm_section["start_time"]} - {cm_section["end_time"]}')
-
-            # 検出結果をデータベースに保存
-            ## ファイルパスから対応する RecordedVideo レコードを取得
-            db_recorded_video = await RecordedVideo.get_or_none(file_path=str(self.file_path))
-            if db_recorded_video is not None:
-                # CM 区間情報を更新
-                # 検出できなかった場合も必ず [] を設定する
-                db_recorded_video.cm_sections = cm_sections
-                await db_recorded_video.save()
-                if len(cm_sections) > 0:
-                    logging.info(f'{self.file_path}: Saved {len(cm_sections)} CM sections. ({time.time() - start_time:.2f} sec)')
-                else:
-                    logging.info(f'{self.file_path}: No CM sections detected. ({time.time() - start_time:.2f} sec)')
-            else:
-                logging.warning(f'{self.file_path}: RecordedVideo record not found.')
+            await self.__save(cm_sections, start_time)
 
         except Exception as ex:
             logging.error(f'{self.file_path}: Error saving CM sections to DB:', exc_info=ex)
 
 
-    async def __detectWithJLS(self) -> list[schemas.CMSection] | None:
+    async def analyzeAndSave(
+        self,
+        device: Literal['CPU', 'GPU'],
+        threads: int,
+        should_stop: Callable[[], bool] | None = None,
+        on_progress: Callable[[str, float], None] | None = None,
+    ) -> list[schemas.CMSection]:
         """
-        録画ファイルの CM 区間を join_logo_scp (with chapter_exe) を使って解析する
+        録画ファイルの CM 区間を AI で解析し、データベースに保存する (ユーザーの明示的な操作・自動解析キューからの実行用)
+        チャプターファイルがあればそちらを優先し、なければ AI で解析する
+        解析に失敗した場合は例外を送出し、データベースの CM 区間情報は変更しない
+
+        Args:
+            device (Literal['CPU', 'GPU']): 画像特徴の推論に使うデバイス
+            threads (int): ffmpeg と推論に使うスレッド数の目安
+            should_stop (Callable[[], bool] | None): True を返すと解析を中断する (InterruptedError が送出される)
+            on_progress (Callable[[str, float], None] | None): 進捗通知 (工程名, 進捗率 0.0 ~ 1.0)
 
         Returns:
-            list[schemas.CMSection] | None: 解析に成功した場合は CM 区間のリストを返す
+            list[schemas.CMSection]: 検出された CM 区間のリスト
         """
 
-        # TODO: CM 区間を検出する処理を実装する
-        return None
+        start_time = time.time()
+        logging.info(f'{self.file_path}: Analyzing CM sections with AI...')
+        cm_sections = await self.__detectFromChapterFile()
+        if not cm_sections:
+            cm_sections = await asyncio.to_thread(
+                CMModelDetector.detect, str(self.file_path), float(self.duration_sec), device, threads, should_stop, on_progress,
+            )
+        await self.__save(cm_sections, start_time)
+        return cm_sections
+
+
+    @staticmethod
+    def __isAutoAnalysisEnabled() -> bool:
+        """ 設定で CM 検出が有効、かつ新規録画の自動解析が有効で、AI モデルが使える状態かどうか """
+
+        settings = Config().cm_detection
+        return settings.enabled and settings.analyze_new_recordings and CMModelDetector.isModelReady()
+
+
+    async def __save(self, cm_sections: list[schemas.CMSection], start_time: float) -> None:
+        """ 検出結果をデータベースに保存する """
+
+        # 検出結果をログに出力
+        for cm_section in cm_sections:
+            logging.debug(f'{self.file_path}: CM section detected: {cm_section["start_time"]} - {cm_section["end_time"]}')
+
+        ## ファイルパスから対応する RecordedVideo レコードを取得
+        db_recorded_video = await RecordedVideo.get_or_none(file_path=str(self.file_path))
+        if db_recorded_video is not None:
+            # CM 区間情報を更新
+            # 検出できなかった場合も必ず [] を設定する
+            db_recorded_video.cm_sections = cm_sections
+            await db_recorded_video.save()
+            if len(cm_sections) > 0:
+                logging.info(f'{self.file_path}: Saved {len(cm_sections)} CM sections. ({time.time() - start_time:.2f} sec)')
+            else:
+                logging.info(f'{self.file_path}: No CM sections detected. ({time.time() - start_time:.2f} sec)')
+        else:
+            logging.warning(f'{self.file_path}: RecordedVideo record not found.')
 
 
     async def __detectFromChapterFile(self) -> list[schemas.CMSection] | None:

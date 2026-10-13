@@ -110,6 +110,9 @@ export interface ILocalClientSettings extends IClientSettings {
     capture_caption_mode: 'VideoOnly' | 'CompositingCaption' | 'Both';
     capture_filename_pattern: string;
     capture_copy_to_clipboard: boolean;
+    cm_auto_skip: boolean;
+    cm_skip_start_margin: number;
+    cm_skip_end_margin: number;
     sync_settings: boolean;
     prefer_posting_to_nicolive: boolean;
     comment_speed_rate: number;
@@ -303,6 +306,16 @@ export const ILocalClientSettingsDefault: ILocalClientSettings = {
     capture_filename_pattern: 'Capture_%date%-%time%',
     // キャプチャをクリップボードにコピーする (Default: 無効) (同期無効)
     capture_copy_to_clipboard: false,
+
+    // ***** 設定 → CM 解析設定 *****
+
+    // 録画番組の再生中に、CM 区間を自動でスキップする (Default: オフ) (同期無効)
+    cm_auto_skip: false,
+    // CM 区間の開始位置からスキップを始めるまでの余白 (秒) (Default: 0.5 秒) (同期無効)
+    // 値を大きくするほど、CM 開始の直前まで本編を長く再生してからスキップする
+    cm_skip_start_margin: 0.5,
+    // CM 区間の終了位置からさらに進める余白 (秒) (Default: 0 秒) (同期無効)
+    cm_skip_end_margin: 0,
 
     // ***** 設定 → アカウント *****
 

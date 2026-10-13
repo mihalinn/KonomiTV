@@ -80,6 +80,9 @@ export interface IClientSettings {
     capture_caption_mode: 'VideoOnly' | 'CompositingCaption' | 'Both';
     capture_filename_pattern: string;
     // capture_copy_to_clipboard: 同期無効
+    // cm_auto_skip: 同期無効
+    // cm_skip_start_margin: 同期無効
+    // cm_skip_end_margin: 同期無効
     // sync_settings: 同期無効
     prefer_posting_to_nicolive: boolean;
     comment_speed_rate: number;

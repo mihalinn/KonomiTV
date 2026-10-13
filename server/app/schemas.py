@@ -815,3 +815,44 @@ class VideoImportJob(BaseModel):
 
 class VideoImportJobs(BaseModel):
     jobs: list[VideoImportJob]
+
+# ***** [改造] CM 区間の AI 解析 *****
+
+class CMAnalysisStatus(BaseModel):
+    enabled: bool
+    analyze_new_recordings: bool
+    device: Literal['CPU', 'GPU']
+    threads: int
+    gpu_available: bool
+    providers: list[str]
+    model_ready: bool
+    model_downloadable: bool
+    model_download: CMModelDownloadStatus
+    pending_count: int
+    running_count: int
+
+class CMModelDownloadStatus(BaseModel):
+    state: Literal['Idle', 'Downloading', 'Completed', 'Failed']
+    progress: float
+    message: str
+
+class CMAnalysisSettings(BaseModel):
+    enabled: bool
+    analyze_new_recordings: bool
+    device: Literal['CPU', 'GPU']
+    threads: Annotated[int, Field(ge=1, le=32)]
+
+class CMAnalysisRequest(BaseModel):
+    video_ids: list[int]
+
+class CMAnalysisJob(BaseModel):
+    video_id: int
+    title: str
+    state: Literal['Pending', 'Running', 'Completed', 'Failed', 'Cancelled']
+    stage: str
+    progress: float
+    message: str
+    cm_section_count: int | None
+
+class CMAnalysisJobs(BaseModel):
+    jobs: list[CMAnalysisJob]

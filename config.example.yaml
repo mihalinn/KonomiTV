@@ -114,3 +114,24 @@ capture:
     upload_folders: [
         'E:\TV-Capture',
     ]
+
+# ============================ CM 解析 (CM 区間の自動検出) の設定 ============================
+cm_detection:
+
+    # CM 解析機能を有効にするか
+    # false のままだと CM 解析は一切実行されず、動作や負荷は従来と変わりません。
+    # CM 解析は CPU (または GPU) を長時間使う重い処理です。使わない場合は false のままにしてください。
+    # 初回利用時に、CM 検出 AI のモデルファイル (約 360MB) が必要になります。
+    # 既存の録画は、録画一覧で選択して [CM 解析する] を実行したときだけ解析されます。
+    enabled: false
+
+    # 新しく録画された番組を自動的に CM 解析するか (enabled が true のときのみ有効)
+    analyze_new_recordings: false
+
+    # CM 解析に使うデバイス (CPU / GPU)
+    # GPU を使うには、GPU 対応版の onnxruntime (CUDA や DirectML 版) が別途必要です。利用できない場合は CPU で実行されます。
+    device: 'CPU'
+
+    # CM 解析で使う CPU スレッド数の目安 (1 ~ 32)
+    # 大きくすると速くなりますが、ライブ視聴や録画への影響が増えます。
+    threads: 2

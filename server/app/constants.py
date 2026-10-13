@@ -40,6 +40,15 @@ TWITTER_DEBUG_SCREENSHOTS_DIR = DATA_DIR / 'twitter-debug-screenshots'
 TWITTER_DEBUG_SCREENSHOTS_RETENTION_DAYS = 7
 ## サーバー終了時に再起動が必要なことを伝えるロックファイルのパス
 RESTART_REQUIRED_LOCK_PATH = DATA_DIR / 'restart_required.lock'
+## CM 区間検出 AI のモデルファイル (ONNX) を置くディレクトリ
+CM_DETECTION_MODEL_DIR = DATA_DIR / 'cm-detection-models'
+## CM 区間検出 AI のモデルファイルのダウンロード元 (末尾スラッシュなし)。空文字の場合はダウンロード機能を使わず、手動配置のみとなる
+CM_DETECTION_MODEL_BASE_URL = ''
+## CM 区間検出 AI のモデルファイル名と SHA-256 ハッシュ値
+CM_DETECTION_MODEL_FILES: dict[str, str] = {
+    'clip_image.onnx': '947d8fd6aeca5ff6907578a0700d835b779843c6d18d09c677e9f4b9d70d25a1',
+    'cm_seq.onnx': 'e60542c6cdf2498ab99537d1d797d3a5fa4168a5776a35a8ba24b3bc7c748f15',
+}
 
 # スタティックディレクトリ
 STATIC_DIR = BASE_DIR / 'static'

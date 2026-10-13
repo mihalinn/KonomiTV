@@ -154,6 +154,11 @@ const router = createRouter({
             component: () => import('@/views/Settings/Twitter.vue'),
         },
         {
+            path: '/settings/cm-analysis',
+            name: 'Settings CM Analysis',
+            component: () => import('@/views/Settings/CMAnalysis.vue'),
+        },
+        {
             path: '/settings/server',
             name: 'Settings Server',
             component: () => import('@/views/Settings/Server.vue'),

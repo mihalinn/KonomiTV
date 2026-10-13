@@ -42,6 +42,10 @@
                         <!-- 表記スペースがないのであえて「Twitter 連携」のまま -->
                         <span class="ml-4">Twitter 連携</span>
                     </v-btn>
+                    <v-btn variant="flat" class="settings-navigation__button" to="/settings/cm-analysis">
+                        <Icon icon="fluent:fast-forward-20-filled" width="26px" />
+                        <span class="ml-4">CM 解析設定</span>
+                    </v-btn>
                     <v-btn variant="flat" class="settings-navigation__button" to="/settings/server">
                         <Icon icon="fluent:server-surface-16-filled" width="26px" />
                         <span class="ml-4">サーバー設定</span>
@@ -99,6 +103,10 @@ export default defineComponent({
         width: 195px;
         position: sticky;
         top: calc(65px + 20px) !important;  // ヘッダー+余白の高さ
+        // タブが増えて画面の高さに収まらない場合でも、一番下のタブまでスクロールして選べるようにする
+        max-height: calc(100vh - 65px - 40px);
+        overflow-y: auto;
+        scrollbar-width: thin;
 
         // タブレット縦画面・スマホ横画面・スマホ縦画面では表示しない
         @include tablet-vertical {
@@ -114,8 +122,9 @@ export default defineComponent({
         .settings-navigation__button {
             justify-content: left !important;
             width: 100%;
-            height: 58px;
-            margin-bottom: 4px;
+            height: 50px;
+            flex-shrink: 0;
+            margin-bottom: 2px;
             border-radius: 11px;
             font-size: 16px;
             color: rgb(var(--v-theme-text)) !important;

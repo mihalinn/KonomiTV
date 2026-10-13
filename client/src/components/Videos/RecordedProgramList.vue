@@ -15,6 +15,15 @@
                 </div>
             </h2>
             <div class="recorded-program-list__actions" :class="{'recorded-program-list__actions--mylist': forMylist}">
+                <v-btn v-if="canSelect"
+                    variant="text"
+                    class="recorded-program-list__select-toggle"
+                    :class="{'recorded-program-list__select-toggle--active': select_mode}"
+                    v-ftooltip="'複数の録画番組を選んで、まとめて CM 解析できます'"
+                    @click="toggleSelectMode">
+                    <Icon :icon="select_mode ? 'fluent:dismiss-16-regular' : 'fluent:checkmark-circle-16-regular'" width="18px" />
+                    <span class="ml-1">{{select_mode ? '選択をやめる' : '選択'}}</span>
+                </v-btn>
                 <v-select v-if="!hideSort"
                     v-model="sort_order"
                     :items="forMylist ? [
@@ -45,6 +54,16 @@
                 </v-btn>
             </div>
         </div>
+        <div class="recorded-program-list__selection" v-if="select_mode">
+            <span class="recorded-program-list__selection-count">{{selected_video_ids.size}}件を選択中</span>
+            <v-btn variant="text" size="small" @click="selectAllInPage">このページをすべて選択</v-btn>
+            <v-btn variant="text" size="small" :disabled="selected_video_ids.size === 0" @click="selected_video_ids.clear()">選択を解除</v-btn>
+            <v-btn variant="flat" size="small" color="primary" class="recorded-program-list__selection-analyze"
+                :disabled="selected_video_ids.size === 0" @click="analyzeSelected">
+                <Icon icon="fluent:fast-forward-20-regular" width="18px" />
+                <span class="ml-1">CM 解析する</span>
+            </v-btn>
+        </div>
         <div class="recorded-program-list__grid"
             :class="{
                 'recorded-program-list__grid--loading': isLoading || isSearching,
@@ -64,7 +83,9 @@
             </div>
             <div class="recorded-program-list__grid-content">
                 <RecordedProgram v-for="program in displayPrograms" :key="program.id" :program="program"
-                    :forMylist="forMylist" :forWatchedHistory="forWatchedHistory" @deleted="handleProgramDeleted" />
+                    :forMylist="forMylist" :forWatchedHistory="forWatchedHistory"
+                    :selectable="select_mode" :selected="selected_video_ids.has(program.recorded_video.id)"
+                    @toggleSelect="toggleSelect(program)" @deleted="handleProgramDeleted" />
             </div>
         </div>
         <div class="recorded-program-list__pagination" v-if="!hidePagination && displayTotal > 0">
@@ -81,11 +102,13 @@
 </template>
 <script lang="ts" setup>
 
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import RecordedProgram from '@/components/Videos/RecordedProgram.vue';
+import CMAnalysis from '@/services/CMAnalysis';
 import { IRecordedProgram, MylistSortOrder, SortOrder } from '@/services/Videos';
+import useUserStore from '@/stores/UserStore';
 import Utils from '@/utils';
 
 const router = useRouter();
@@ -165,6 +188,45 @@ watch(() => props.programs, (newPrograms) => {
 watch(() => props.total, (newTotal) => {
     displayTotal.value = newTotal;
 });
+
+// 選択モード (複数の録画番組を選んでまとめて CM 解析するための UI)
+const user_store = useUserStore();
+const select_mode = ref(false);
+// 選択中の録画ファイル (RecordedVideo) の ID (ページをまたいでも保持する)
+const selected_video_ids = ref<Set<number>>(new Set());
+// CM 解析は管理者のみ実行できる。ヘッダーを表示しない一覧・視聴履歴・「もっと見る」付きの一覧では選択モードを出さない
+const canSelect = computed(() => {
+    return user_store.user?.is_admin === true && !props.hideHeader && !props.forWatchedHistory && !props.showMoreButton;
+});
+
+const toggleSelectMode = () => {
+    select_mode.value = !select_mode.value;
+    selected_video_ids.value.clear();
+};
+
+const toggleSelect = (program: IRecordedProgram) => {
+    const video_id = program.recorded_video.id;
+    if (selected_video_ids.value.has(video_id)) {
+        selected_video_ids.value.delete(video_id);
+    } else {
+        selected_video_ids.value.add(video_id);
+    }
+};
+
+// 表示中のページの、録画が完了している番組をすべて選択する
+const selectAllInPage = () => {
+    for (const program of displayPrograms.value) {
+        if (program.recorded_video.status === 'Recorded') {
+            selected_video_ids.value.add(program.recorded_video.id);
+        }
+    }
+};
+
+const analyzeSelected = async () => {
+    await CMAnalysis.requestAnalysis([...selected_video_ids.value]);
+    select_mode.value = false;
+    selected_video_ids.value.clear();
+};
 
 // 録画ファイルが削除された時の処理
 const handleProgramDeleted = (id: number) => {
@@ -288,6 +350,34 @@ const handleProgramDeleted = (id: number) => {
             .v-select {
                 width: 143px;
             }
+        }
+    }
+
+    &__select-toggle {
+        flex-shrink: 0;
+        margin-left: 12px;
+        padding: 0px 10px;
+        font-size: 14px;
+        letter-spacing: 0.02em;
+        &--active {
+            color: rgb(var(--v-theme-primary));
+        }
+    }
+
+    &__selection {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px 8px;
+        margin-bottom: 8px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        background: rgb(var(--v-theme-background-lighten-1));
+
+        &-count {
+            margin-right: auto;
+            font-size: 14px;
+            font-weight: 700;
         }
     }
 

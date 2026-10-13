@@ -15,6 +15,7 @@ import ruamel.yaml.scalarstring
 from pydantic import (
     BaseModel,
     DirectoryPath,
+    Field,
     FilePath,
     PositiveFloat,
     PositiveInt,
@@ -354,12 +355,19 @@ class _ServerSettingsVideo(BaseModel):
 class _ServerSettingsCapture(BaseModel):
     upload_folders: list[DirectoryPath] = []
 
+class _ServerSettingsCMDetection(BaseModel):
+    enabled: bool = False
+    analyze_new_recordings: bool = False
+    device: Literal['CPU', 'GPU'] = 'CPU'
+    threads: Annotated[int, Field(ge=1, le=32)] = 2
+
 class ServerSettings(BaseModel):
     general: _ServerSettingsGeneral = _ServerSettingsGeneral()
     server: _ServerSettingsServer = _ServerSettingsServer()
     tv: _ServerSettingsTV = _ServerSettingsTV()
     video: _ServerSettingsVideo = _ServerSettingsVideo()
     capture: _ServerSettingsCapture = _ServerSettingsCapture()
+    cm_detection: _ServerSettingsCMDetection = _ServerSettingsCMDetection()
 
 
 # サーバー設定データと読み込み・保存用の関数
@@ -574,6 +582,47 @@ def SaveConfig(config: ServerSettings) -> None:
 
     with open(_CONFIG_YAML_PATH, mode='w', encoding='utf-8') as file:
         yaml.dump(config_raw, file, transform=transform)
+
+
+def SaveCMDetectionConfig(cm_detection: _ServerSettingsCMDetection) -> None:
+    """
+    CM 解析設定だけを config.yaml に書き込み、稼働中のサーバー設定にも即時反映する
+    他のセクション (サーバー設定画面で編集して再起動待ちのものなど) には触れない
+
+    Args:
+        cm_detection (_ServerSettingsCMDetection): 新しい CM 解析設定
+    """
+
+    global _CONFIG_YAML_PATH
+
+    yaml = ruamel.yaml.YAML()
+    yaml.default_flow_style = None
+    yaml.preserve_quotes = True
+    yaml.width = 20
+    yaml.indent(mapping=4, sequence=4, offset=4)
+    try:
+        with open(_CONFIG_YAML_PATH, encoding='utf-8') as file:
+            config_raw = yaml.load(file)
+    except Exception as error:
+        raise RuntimeError(f'Failed to load config.yaml: {error}')
+
+    if 'cm_detection' not in config_raw or config_raw['cm_detection'] is None:
+        config_raw['cm_detection'] = ruamel.yaml.CommentedMap()
+    for key, value in cm_detection.model_dump(mode='json').items():
+        if type(value) is str:
+            config_raw['cm_detection'][key] = ruamel.yaml.scalarstring.SingleQuotedScalarString(value)
+        else:
+            config_raw['cm_detection'][key] = value
+
+    # config.yaml の書き込みは SaveConfig() と同じく配列の閉じ括弧の整形が必要
+    def transform(value: str) -> str:
+        return value.replace("']", "',\n    ]")
+
+    with open(_CONFIG_YAML_PATH, mode='w', encoding='utf-8') as file:
+        yaml.dump(config_raw, file, transform=transform)
+
+    # 稼働中の設定にも反映する (CM 解析設定は再起動なしで切り替えられるようにするため)
+    Config().cm_detection = cm_detection
 
 
 def Config() -> ServerSettings:

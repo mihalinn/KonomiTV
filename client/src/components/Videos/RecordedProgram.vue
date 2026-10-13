@@ -1,15 +1,22 @@
 <template>
     <router-link v-ripple class="recorded-program"
-        :to="program.recorded_video.status === 'Recorded' ? `/videos/watch/${program.id}` : { path: '' }"
+        :to="program.recorded_video.status === 'Recorded' && !selectable ? `/videos/watch/${program.id}` : { path: '' }"
         :class="{
             'recorded-program--recording': program.recorded_video.status === 'Recording',
             'recorded-program--failed': program.recorded_video.status === 'AnalysisFailed',
-        }">
+            'recorded-program--selectable': selectable,
+            'recorded-program--selected': selectable && selected,
+        }"
+        @click="selectable && program.recorded_video.status === 'Recorded' && emit('toggleSelect')">
         <div class="recorded-program__container">
             <div class="recorded-program__thumbnail">
                 <img class="recorded-program__thumbnail-image" loading="lazy" decoding="async"
                     :src="`${Utils.api_base_url}/videos/${program.id}/thumbnail`">
                 <div class="recorded-program__thumbnail-duration">{{ProgramUtils.getProgramDuration(program)}}</div>
+                <div v-if="selectable" class="recorded-program__thumbnail-check"
+                    :class="{'recorded-program__thumbnail-check--checked': selected}">
+                    <Icon v-if="selected" icon="fluent:checkmark-12-filled" width="16px" height="16px" />
+                </div>
                 <div v-if="program.recorded_video.status === 'Recording'" class="recorded-program__thumbnail-status recorded-program__thumbnail-status--recording">
                     <div class="recorded-program__thumbnail-status-dot"></div>
                     録画中
@@ -110,6 +117,13 @@
                             </template>
                             <v-list-item-title class="ml-3">サムネイルを再生成</v-list-item-title>
                         </v-list-item>
+                        <v-list-item @click="analyzeCM" :disabled="program.recorded_video.status !== 'Recorded'"
+                            v-ftooltip="'この録画番組の CM 区間を AI で検出します（数分かかります） 進行状況は設定の「CM 解析設定」で確認できます'">
+                            <template v-slot:prepend>
+                                <Icon icon="fluent:fast-forward-20-regular" width="20px" height="20px" />
+                            </template>
+                            <v-list-item-title class="ml-3">{{ program.recorded_video.cm_sections === null ? 'CM 解析する' : 'CM を再解析する' }}</v-list-item-title>
+                        </v-list-item>
                         <v-divider></v-divider>
                         <v-list-item @click="showDeleteConfirmation" :disabled="program.recorded_video.status === 'Recording'" class="recorded-program__menu-list-item--danger">
                             <template v-slot:prepend>
@@ -155,6 +169,7 @@ import { ref, computed } from 'vue';
 
 import RecordedFileInfoDialog from '@/components/Videos/Dialogs/RecordedFileInfoDialog.vue';
 import Message from '@/message';
+import CMAnalysis from '@/services/CMAnalysis';
 import Videos, { IRecordedProgram } from '@/services/Videos';
 import useSettingsStore from '@/stores/SettingsStore';
 import useUserStore from '@/stores/UserStore';
@@ -165,14 +180,19 @@ const props = withDefaults(defineProps<{
     program: IRecordedProgram;
     forMylist?: boolean;
     forWatchedHistory?: boolean;
+    selectable?: boolean;
+    selected?: boolean;
 }>(), {
     forMylist: false,
     forWatchedHistory: false,
+    selectable: false,
+    selected: false,
 });
 
 // Emits
 const emit = defineEmits<{
     (e: 'deleted', id: number): void;
+    (e: 'toggleSelect'): void;
 }>();
 
 // ファイル情報ダイアログの表示状態
@@ -192,6 +212,11 @@ const reanalyzeVideo = async () => {
     if (result === true) {
         Message.success('メタデータの再解析が完了しました。');
     }
+};
+
+// CM 解析 (この録画番組だけを CM 解析キューに追加する)
+const analyzeCM = async () => {
+    await CMAnalysis.requestAnalysis([props.program.recorded_video.id]);
 };
 
 // サムネイル再生成
@@ -357,6 +382,26 @@ const deleteVideo = async () => {
             }
         }
 
+        &-check {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            width: 22px;
+            height: 22px;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.45);
+            color: #fff;
+            box-sizing: border-box;
+
+            &--checked {
+                border-color: rgb(var(--v-theme-primary));
+                background: rgb(var(--v-theme-primary));
+            }
+        }
         &-status {
             display: flex;
             align-items: center;
@@ -756,6 +801,18 @@ const deleteVideo = async () => {
         }
     }
 
+    &--selected {
+        background: rgba(var(--v-theme-primary), 0.18);
+        &:hover {
+            background: rgba(var(--v-theme-primary), 0.24);
+        }
+        // タッチデバイスでは hover を無効にしたまま、選択中の色だけ維持する
+        @media (hover: none) {
+            &:hover {
+                background: rgba(var(--v-theme-primary), 0.18);
+            }
+        }
+    }
     &--recording, &--failed {
         pointer-events: none;
         &:hover {

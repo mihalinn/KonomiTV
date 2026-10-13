@@ -1509,6 +1509,85 @@ class PlayerController {
                 });
             });
 
+            // CM 自動スキップ処理
+            // 再生が自然に進んで CM 区間に入ったときだけスキップする (シークで CM 区間に入った場合は何もしない)
+            // 設定は再生中に変更されても反映されるよう、毎回 settings_store から読み込む
+            const cm_sections = player_store.recorded_program?.recorded_video?.cm_sections ?? [];
+            const video_duration = player_store.recorded_program?.recorded_video?.duration ?? 0;
+            let cm_skip_last_time = -1;
+            // 「元に戻す」を押した CM 区間の開始位置 (この区間を出るまで再スキップしない)
+            let cm_skip_undone_start: number | null = null;
+            let cm_skip_undo_button: HTMLButtonElement | null = null;
+            let cm_skip_undo_button_timer_id = 0;
+            const removeCMSkipUndoButton = () => {
+                window.clearTimeout(cm_skip_undo_button_timer_id);
+                cm_skip_undo_button?.remove();
+                cm_skip_undo_button = null;
+            };
+            const showCMSkipUndoButton = (cm_start_time: number) => {
+                if (!this.player) {
+                    return;
+                }
+                removeCMSkipUndoButton();
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.textContent = 'CM をスキップしました - 元に戻す';
+                button.style.cssText = 'position: absolute; left: 16px; bottom: 72px; z-index: 20; padding: 8px 14px; ' +
+                    'border: none; border-radius: 6px; color: #fff; background: rgba(0, 0, 0, 0.75); ' +
+                    'font-size: 14px; cursor: pointer;';
+                button.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    if (this.player && this.player.video) {
+                        cm_skip_undone_start = cm_start_time;
+                        this.player.seek(cm_start_time);
+                    }
+                    removeCMSkipUndoButton();
+                });
+                this.player.container.appendChild(button);
+                cm_skip_undo_button = button;
+                cm_skip_undo_button_timer_id = window.setTimeout(removeCMSkipUndoButton, 8000);
+            };
+            if (cm_sections.length > 0) {
+                this.player.on('timeupdate', () => {
+                    if (!this.player || !this.player.video) {
+                        return;
+                    }
+                    const current_time = this.player.video.currentTime;
+                    const last_time = cm_skip_last_time;
+                    cm_skip_last_time = current_time;
+                    if (settings_store.settings.cm_auto_skip !== true) {
+                        return;
+                    }
+                    // 1.5 秒以上の位置変化はシーク操作とみなし、スキップしない
+                    if (last_time < 0 || current_time < last_time || current_time - last_time > 1.5) {
+                        return;
+                    }
+                    const start_margin = settings_store.settings.cm_skip_start_margin;
+                    const end_margin = settings_store.settings.cm_skip_end_margin;
+                    for (const section of cm_sections) {
+                        // 元に戻した CM 区間は、区間から出るまで再スキップしない
+                        if (cm_skip_undone_start === section.start_time) {
+                            if (current_time < section.start_time || current_time >= section.end_time) {
+                                cm_skip_undone_start = null;
+                            }
+                            continue;
+                        }
+                        // 動画終了間際の CM はスキップしない (CM マーカーと同じ扱い)
+                        if (section.end_time > video_duration - 2) {
+                            continue;
+                        }
+                        if (current_time >= section.start_time + start_margin && current_time < section.end_time) {
+                            const target_time = Math.max(section.end_time + end_margin, current_time);
+                            this.player.seek(target_time);
+                            cm_skip_last_time = target_time;
+                            this.player.notice('CM をスキップしました', 2000);
+                            showCMSkipUndoButton(section.start_time);
+                            break;
+                        }
+                    }
+                });
+            }
+
             // 視聴履歴の更新処理
             // timeupdate イベントを間引いて処理
             // ここで登録したイベントは、destroy() を実行した際にプレイヤーごと破棄される
