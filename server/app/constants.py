@@ -42,6 +42,8 @@ TWITTER_DEBUG_SCREENSHOTS_RETENTION_DAYS = 7
 RESTART_REQUIRED_LOCK_PATH = DATA_DIR / 'restart_required.lock'
 ## CM 区間検出 AI のモデルファイル (ONNX) を置くディレクトリ
 CM_DETECTION_MODEL_DIR = DATA_DIR / 'cm-detection-models'
+## CM 区間検出 AI のバージョン (録画ごとに「どのバージョンで解析したか」を記録して画面に表示する。モデルを更新したら上げる)
+CM_DETECTION_MODEL_VERSION = '1.0'
 ## CM 区間検出 AI のモデルファイルのダウンロード元 (末尾スラッシュなし)。空文字の場合はダウンロード機能を使わず、手動配置のみとなる
 CM_DETECTION_MODEL_BASE_URL = ''
 ## CM 区間検出 AI のモデルファイル名と SHA-256 ハッシュ値

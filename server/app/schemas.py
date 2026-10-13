@@ -167,6 +167,7 @@ class RecordedVideo(PydanticModel):
     secondary_audio_channel: Literal['Monaural', 'Stereo', '5.1ch'] | None = None
     secondary_audio_sampling_rate: int | None = None
     cm_sections: list[CMSection] | None = None
+    cm_analysis_version: str | None = None
     thumbnail_info: ThumbnailInfo | None = None
     created_at: datetime
     updated_at: datetime

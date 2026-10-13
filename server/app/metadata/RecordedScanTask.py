@@ -1010,6 +1010,7 @@ class RecordedScanTask:
             # この時点では CM 区間情報は未解析なので、明示的に未解析を表す None を設定する (デフォルトで None だが念のため)
             # 「解析したが CM 区間がなかった/検出に失敗した」場合、CMSectionsDetector 側で [] が設定される
             db_recorded_video.cm_sections = None
+            db_recorded_video.cm_analysis_version = None
             await db_recorded_video.save()
 
 

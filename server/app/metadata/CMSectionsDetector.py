@@ -12,6 +12,7 @@ import typer
 
 from app import logging, schemas
 from app.config import Config, LoadConfig
+from app.constants import CM_DETECTION_MODEL_VERSION
 from app.metadata.CMModelDetector import CMModelDetector
 from app.models.RecordedVideo import RecordedVideo
 
@@ -48,6 +49,7 @@ class CMSectionsDetector:
             ## 自前で解析すると計算コストが高いので、もしチャプターファイルがあればそれを優先的に使う
             ## .chapter.txt は Amatsukaze でエンコードした際に設定次第で自動生成される
             cm_sections = await self.__detectFromChapterFile()
+            analysis_version = 'チャプター' if cm_sections else None
 
             # チャプターファイルがなく、設定で「新規録画を自動で CM 解析する」が有効な場合は、AI 解析のキューに積む
             ## AI 解析は重い処理のため、ここでは実行せず CMAnalysisQueue が 1 本ずつ順番に処理する
@@ -67,7 +69,7 @@ class CMSectionsDetector:
             if cm_sections is None:
                 cm_sections = []
 
-            await self.__save(cm_sections, start_time)
+            await self.__save(cm_sections, start_time, analysis_version)
 
         except Exception as ex:
             logging.error(f'{self.file_path}: Error saving CM sections to DB:', exc_info=ex)
@@ -98,11 +100,13 @@ class CMSectionsDetector:
         start_time = time.time()
         logging.info(f'{self.file_path}: Analyzing CM sections with AI...')
         cm_sections = await self.__detectFromChapterFile()
+        analysis_version = 'チャプター'
         if not cm_sections:
+            analysis_version = f'AI {CM_DETECTION_MODEL_VERSION}'
             cm_sections = await asyncio.to_thread(
                 CMModelDetector.detect, str(self.file_path), float(self.duration_sec), device, threads, should_stop, on_progress,
             )
-        await self.__save(cm_sections, start_time)
+        await self.__save(cm_sections, start_time, analysis_version)
         return cm_sections
 
 
@@ -114,7 +118,7 @@ class CMSectionsDetector:
         return settings.enabled and settings.analyze_new_recordings and CMModelDetector.isModelReady()
 
 
-    async def __save(self, cm_sections: list[schemas.CMSection], start_time: float) -> None:
+    async def __save(self, cm_sections: list[schemas.CMSection], start_time: float, analysis_version: str | None) -> None:
         """ 検出結果をデータベースに保存する """
 
         # 検出結果をログに出力
@@ -127,6 +131,7 @@ class CMSectionsDetector:
             # CM 区間情報を更新
             # 検出できなかった場合も必ず [] を設定する
             db_recorded_video.cm_sections = cm_sections
+            db_recorded_video.cm_analysis_version = analysis_version
             await db_recorded_video.save()
             if len(cm_sections) > 0:
                 logging.info(f'{self.file_path}: Saved {len(cm_sections)} CM sections. ({time.time() - start_time:.2f} sec)')

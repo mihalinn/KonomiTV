@@ -48,6 +48,11 @@
                     </div>
                     <div class="recorded-program__content-meta-time">{{ProgramUtils.getProgramTime(program)}}</div>
                 </div>
+                <div v-if="program.recorded_video.cm_sections !== null" class="recorded-program__content-cm">
+                    <span class="recorded-program__content-cm-badge">
+                        CM 解析済み{{program.recorded_video.cm_analysis_version ? ` (${program.recorded_video.cm_analysis_version})` : ''}}
+                    </span>
+                </div>
                 <div class="recorded-program__content-description"
                     v-html="ProgramUtils.decorateProgramInfo(program, 'description')"></div>
             </div>
@@ -588,6 +593,20 @@ const deleteVideo = async () => {
                     margin-left: 0px;
                     font-size: 11px;
                 }
+            }
+        }
+
+        &-cm {
+            margin-top: 4px;
+            line-height: 1;
+
+            &-badge {
+                display: inline-block;
+                padding: 2px 6px;
+                border-radius: 4px;
+                font-size: 11px;
+                color: rgb(var(--v-theme-text-darken-1));
+                background: rgb(var(--v-theme-background-lighten-2));
             }
         }
 

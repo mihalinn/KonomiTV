@@ -58,6 +58,9 @@ class RecordedVideo(TortoiseModel):
     cm_sections = cast(TortoiseField[list[CMSection] | None],
         # None は未解析状態を表す ([] は解析したが CM 区間がなかった/検出に失敗したことを表す)
         fields.JSONField(default=None, encoder=lambda x: json.dumps(x, ensure_ascii=False), null=True))  # type: ignore
+    cm_analysis_version = cast(TortoiseField[str | None],
+        # CM 区間をどの方法・バージョンで解析したか (例: 'AI 1.0' / 'チャプター')。None は未記録 (旧バージョンで解析済み含む)
+        fields.CharField(255, null=True))
     thumbnail_info = cast(TortoiseField[ThumbnailInfo | None],
         # None はサムネイル未生成か、旧仕様から移行しきれていないことを表す
         fields.JSONField(default=None, encoder=lambda x: json.dumps(x, ensure_ascii=False), null=True))  # type: ignore
