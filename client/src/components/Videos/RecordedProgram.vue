@@ -1,6 +1,6 @@
 <template>
     <router-link v-ripple class="recorded-program"
-        :to="program.recorded_video.status === 'Recorded' && !selectable ? `/videos/watch/${program.id}` : { path: '' }"
+        :to="program.recorded_video.status === 'Recorded' && !selectable ? `/videos/watch/${program.id}` : $route.fullPath"
         :class="{
             'recorded-program--recording': program.recorded_video.status === 'Recording',
             'recorded-program--failed': program.recorded_video.status === 'AnalysisFailed',
