@@ -149,7 +149,7 @@
             </div>
             <div class="settings__description mt-1">
                 録画番組の再生中の動作です。この設定は、この端末のブラウザにだけ保存されます。<br>
-                CM 区間が検出済みの録画番組だけが対象です。スキップ直後は、プレイヤーに表示される [元に戻す] ボタンで CM の頭に戻れます。<br>
+                CM 区間が検出済みの録画番組だけが対象です。自動スキップを使わない場合でも、CM 中にプレイヤーに表示される [CM をスキップ] ボタンで手動でスキップできます。<br>
             </div>
             <div class="settings__item settings__item--switch">
                 <label class="settings__item-heading" for="cm_auto_skip">再生中に CM を自動でスキップする</label>
@@ -183,6 +183,60 @@
                     :density="is_form_dense ? 'compact' : 'default'"
                     v-model="settingsStore.settings.cm_skip_end_margin">
                 </v-slider>
+            </div>
+        </div>
+        <div class="settings__content mt-6">
+            <div class="settings__content-heading">
+                <Icon icon="fluent:document-text-20-filled" width="22px" />
+                <span class="ml-2">ライセンス (CM 検出 AI)</span>
+            </div>
+            <div class="settings__description mt-1">
+                CM 検出 AI のモデルと、その元になっているソフトウェアのライセンスです。<br>
+                モデルを配布・再配布する場合は、下記の著作権表示と許諾文を必ず添付してください。<br>
+            </div>
+            <div class="settings__item">
+                <div class="settings__item-heading">CM 判定モデル (cm_seq.onnx)</div>
+                <div class="settings__item-label">
+                    このプロジェクトで独自に学習した CM 判定モデル (GRU のアンサンブル) です。MIT License で提供します。<br>
+                    Copyright (c) 2026 KonomiTV CM 検出モデルの作者<br>
+                    学習には、作者自身が録画した番組から計算した特徴量だけを使っています。録画映像そのものはモデルに含まれていません。<br>
+                </div>
+            </div>
+            <div class="settings__item">
+                <div class="settings__item-heading">画像特徴抽出モデル (clip_image.onnx)</div>
+                <div class="settings__item-label">
+                    OpenAI の CLIP (ViT-B/32) の画像エンコーダを ONNX 形式に変換したものです。MIT License です。<br>
+                    Copyright (c) 2021 OpenAI (https://github.com/openai/CLIP)<br>
+                    変換には OpenCLIP (MIT License, https://github.com/mlfoundations/open_clip) を使用しました。<br>
+                    CLIP のモデルカードには、研究用途を主に想定しており、商用利用は推奨しない旨の注意書きがあります。<br>
+                </div>
+            </div>
+            <div class="settings__item">
+                <div class="settings__item-heading">推論エンジン (ONNX Runtime)</div>
+                <div class="settings__item-label">
+                    ONNX Runtime (MIT License, Copyright (c) Microsoft Corporation) を使用しています。<br>
+                    GPU で解析する場合に必要な NVIDIA CUDA / cuDNN は、NVIDIA のライセンスに従って各自でインストールするものです。KonomiTV には同梱されません。<br>
+                </div>
+            </div>
+            <div class="settings__item">
+                <div class="settings__item-heading">MIT License</div>
+                <pre class="cm-license">Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</pre>
             </div>
         </div>
     </SettingsBase>
@@ -287,6 +341,19 @@ onBeforeUnmount(() => window.clearInterval(refresh_timer));
 
 </script>
 <style lang="scss" scoped>
+
+.cm-license {
+    margin-top: 8px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: rgb(var(--v-theme-background-lighten-1));
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: rgb(var(--v-theme-text-darken-1));
+}
 
 .cm-jobs {
     display: flex;
