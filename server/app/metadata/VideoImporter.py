@@ -1,7 +1,8 @@
 
 # [改造: 動画ファイルのアップロード取り込み]
 # ブラウザからアップロードされた動画 (MP4 / WebM / MKV など) を、KonomiTV が再生できる形式 (H.264/H.265/MPEG-2 + AAC の MP4/TS) に
-# 必要に応じて変換した上で、録画フォルダ直下のシリーズフォルダへ置く。置かれたファイルは通常のファイル監視で録画番組として登録される。
+# 必要に応じて変換した上で、録画フォルダ直下のシリーズフォルダへ置く。置いた直後に、ファイル監視を待たず録画番組として DB へ登録する
+# (新しく作ったフォルダの中の変更はファイル監視が拾えないことがあるため)。
 
 import asyncio
 import json
@@ -13,6 +14,8 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+import anyio
 
 from app import logging
 from app.constants import DATA_DIR, JST, LIBRARY_PATH
@@ -497,6 +500,12 @@ class VideoImporter:
             source.unlink(missing_ok=True)
             self.__touch(job, status='done', progress=100, message='', dest_path=str(dest_path))
             logging.info(f'[VideoImporter] Imported: {dest_path} (plan={plan})')
+            # 新しく作ったフォルダの中の変更はファイル監視が拾えないことがあるため、ここで明示的に録画番組として登録する
+            # (ファイル監視側でも同じファイルが検知された場合は、既に登録済みとして何も行われない)
+            try:
+                await RecordedScanTask().processRecordedFile(anyio.Path(dest_path))
+            except Exception as ex:
+                logging.warning(f'[VideoImporter] Failed to register the imported file: {dest_path}', exc_info=ex)
 
         except VideoImportError as ex:
             self.__touch(job, status='failed', message=ex.message)
