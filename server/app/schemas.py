@@ -786,6 +786,13 @@ class VideoFolder(BaseModel):
 class VideoFolders(BaseModel):
     folders: list[VideoFolder]
 
+class VideoFolderRequest(BaseModel):
+    folder: str  # 録画フォルダ直下のフォルダ名
+
+class VideoFolderRenameRequest(BaseModel):
+    folder: str  # 変更前のフォルダ名
+    new_folder: str  # 変更後のフォルダ名
+
 
 # ***** [改造] 動画ファイルのアップロード取り込み *****
 

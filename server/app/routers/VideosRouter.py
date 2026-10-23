@@ -828,6 +828,80 @@ async def VideoFoldersAPI(
     return schemas.VideoFolders(folders=[schemas.VideoFolder(name=name, path=path) for name, path in folders])
 
 
+def RaiseFolderError(ex: RecordedVideoMoveError) -> None:
+    """ [改造] フォルダ操作の失敗を HTTP エラーに変換して送出する """
+    status_code_map = {
+        'NotFound': status.HTTP_404_NOT_FOUND,
+        'Invalid': status.HTTP_400_BAD_REQUEST,
+        'Conflict': status.HTTP_409_CONFLICT,
+        'Busy': status.HTTP_409_CONFLICT,
+        'Failed': status.HTTP_500_INTERNAL_SERVER_ERROR,
+    }
+    raise HTTPException(status_code=status_code_map[ex.kind], detail=ex.message)
+
+
+@router.post(
+    '/folders',
+    summary = '録画フォルダ作成 API',
+    response_description = '作成したフォルダ。',
+    response_model = schemas.VideoFolder,
+)
+async def FolderCreateAPI(
+    current_user: Annotated[User, Depends(GetCurrentAdminUser)],
+    request: schemas.VideoFolderRequest,
+):
+    """
+    録画フォルダ直下に空のフォルダを作成する。管理者アカウントでないとアクセスできない。
+    """
+
+    try:
+        path = await RecordedScanTask().createRecordedFolder(request.folder)
+    except RecordedVideoMoveError as ex:
+        RaiseFolderError(ex)
+    return schemas.VideoFolder(name=request.folder, path=path)
+
+
+@router.post(
+    '/folders/rename',
+    summary = '録画フォルダ名変更 API',
+    response_description = '名前を変更したフォルダ。',
+    response_model = schemas.VideoFolder,
+)
+async def FolderRenameAPI(
+    current_user: Annotated[User, Depends(GetCurrentAdminUser)],
+    request: schemas.VideoFolderRenameRequest,
+):
+    """
+    録画フォルダ直下のフォルダの名前を変更する。中の録画番組の ID・メタデータ・サムネイルはそのまま引き継がれる。
+    録画中・解析中の録画があるフォルダ、変更後の名前が既にあるフォルダは変更できない。管理者アカウントでないとアクセスできない。
+    """
+
+    try:
+        _, new_path = await RecordedScanTask().renameRecordedFolder(request.folder, request.new_folder)
+    except RecordedVideoMoveError as ex:
+        RaiseFolderError(ex)
+    return schemas.VideoFolder(name=request.new_folder, path=new_path)
+
+
+@router.post(
+    '/folders/delete',
+    summary = '録画フォルダ削除 API',
+    status_code = status.HTTP_204_NO_CONTENT,
+)
+async def FolderDeleteAPI(
+    current_user: Annotated[User, Depends(GetCurrentAdminUser)],
+    request: schemas.VideoFolderRequest,
+):
+    """
+    録画フォルダ直下の空のフォルダを削除する。中に何かあるフォルダは削除できない。管理者アカウントでないとアクセスできない。
+    """
+
+    try:
+        await RecordedScanTask().deleteRecordedFolder(request.folder)
+    except RecordedVideoMoveError as ex:
+        RaiseFolderError(ex)
+
+
 @router.get(
     '/{video_id}',
     summary = '録画番組 API',
