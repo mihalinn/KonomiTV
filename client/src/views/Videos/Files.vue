@@ -1563,8 +1563,9 @@ onBeforeUnmount(() => {
 
     &__icon {
         flex: none;
+        color: rgb(var(--v-theme-primary));
         &--folder {
-            color: #f2c14e;
+            color: rgb(var(--v-theme-primary));
         }
         &--muted {
             color: rgb(var(--v-theme-text-darken-1));
@@ -1629,11 +1630,11 @@ onBeforeUnmount(() => {
 .item {
     &__folder-icon {
         flex: none;
-        color: #f2c14e;
+        color: rgb(var(--v-theme-primary));
     }
     &__file-icon {
         flex: none;
-        color: rgb(var(--v-theme-text-darken-1));
+        color: rgb(var(--v-theme-primary-lighten-1));
     }
     &__thumb {
         flex: none;
