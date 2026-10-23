@@ -433,6 +433,24 @@ class Videos {
     }
 
     /**
+     * [改造] moveVideo() と同じ移動を行い、移動先に同名のファイルがあったためファイル名が変わったかどうかも返す
+     * @returns error が null なら成功 (renamed が true ならファイル名の末尾に -(1) などが付いた)
+     */
+    static async moveVideoDetailed(video_id: number, folder: string): Promise<{ error: string | null; renamed: boolean }> {
+
+        const response = await APIClient.post<{ id: number; old_path: string; new_path: string }>(`/videos/${video_id}/move`, { folder });
+
+        if (response.type === 'error') {
+            const detail = response.data.detail;
+            return { error: typeof detail === 'string' && detail !== '' ? detail : '移動に失敗しました。', renamed: false };
+        }
+
+        const baseName = (path: string): string => path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
+        return { error: null, renamed: baseName(response.data.old_path) !== baseName(response.data.new_path) };
+    }
+
+
+    /**
      * [改造] 録画フォルダ直下に空のフォルダを作成する (管理者のみ)
      * @param folder 作成するフォルダ名
      * @returns 作成したフォルダのフルパス、またはエラーメッセージ

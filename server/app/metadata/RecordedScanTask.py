@@ -1544,6 +1544,31 @@ class RecordedScanTask:
         return result
 
 
+    async def __isMovePathTaken(self, path: anyio.Path) -> bool:
+        """ 移動先として、本体・付属ファイル・DB 登録のいずれかが既にそのパスを使っているかどうか """
+
+        if await path.exists():
+            return True
+        for suffix in self.MOVE_SIDECAR_SUFFIXES:
+            if await anyio.Path(f'{path}{suffix}').exists():
+                return True
+        return await RecordedVideo.filter(file_path=str(path)).exists()
+
+
+    async def __makeUniqueMovePath(self, new_dir: anyio.Path, file_name: str) -> anyio.Path:
+        """ 移動先フォルダ内で使われていないファイルパスを返す (使われていれば 名前-(1).拡張子 のように連番を付ける) """
+
+        candidate = new_dir / file_name
+        if not await self.__isMovePathTaken(candidate):
+            return candidate
+        stem, extension = os.path.splitext(file_name)
+        for number in range(1, 1000):
+            candidate = new_dir / f'{stem}-({number}){extension}'
+            if not await self.__isMovePathTaken(candidate):
+                return candidate
+        raise RecordedVideoMoveError('Conflict', '移動先に同名のファイルが多すぎるため移動できません。')
+
+
     async def moveRecordedVideo(self, recorded_video_id: int, folder_name: str) -> tuple[str, str]:
         """
         録画ファイルを、同じ録画フォルダ直下の指定名のフォルダ (なければ作成) へ移動する
@@ -1577,6 +1602,8 @@ class RecordedScanTask:
         new_path = new_dir / old_path.name
         if new_path == old_path:
             return str(old_path), str(new_path)
+        # 移動先に同名のファイル (別の録画) があるときは、名前の末尾に -(1) -(2) ... を付けて重複を避ける
+        new_path = await self.__makeUniqueMovePath(new_dir, old_path.name)
 
         # 監視処理と同じロックを、パス順に取得する (デッドロック防止)
         lock_paths = sorted({old_path, new_path}, key=str)

@@ -521,12 +521,14 @@ const moveTo = async (ids: number[], folderName: string): Promise<number> => {
     totalCount.value = targets.length;
     failures.value = [];
     let succeeded = 0;
+    renamedCount.value = 0;
     for (const program of targets) {
-        const error = await Videos.moveVideo(program.id, folderName);
-        if (error === null) {
+        const result = await Videos.moveVideoDetailed(program.id, folderName);
+        if (result.error === null) {
             succeeded++;
+            if (result.renamed) renamedCount.value++;
         } else {
-            failures.value.push({ id: program.id, title: program.title, message: error });
+            failures.value.push({ id: program.id, title: program.title, message: result.error });
         }
         doneCount.value++;
     }
@@ -535,9 +537,14 @@ const moveTo = async (ids: number[], folderName: string): Promise<number> => {
     return succeeded;
 };
 
+// 直前の移動で、移動先に同名のファイルがあったためファイル名の末尾に -(1) などを付けた件数
+const renamedCount = ref(0);
+
 const reportMove = (succeeded: number, label: string) => {
+    const note = renamedCount.value > 0
+        ? ` (同じ名前のファイルがあった${renamedCount.value}件は、名前の末尾に -(1) などを付けました)` : '';
     if (failures.value.length === 0) {
-        Message.success(`${succeeded}件を「${label}」へ移動しました。`);
+        Message.success(`${succeeded}件を「${label}」へ移動しました。${note}`);
     } else if (succeeded > 0) {
         Message.warning(`${succeeded}件を移動しました。${failures.value.length}件は失敗しました。(${failures.value[0].message})`);
     } else {
