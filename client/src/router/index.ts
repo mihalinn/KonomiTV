@@ -55,6 +55,16 @@ const router = createRouter({
             component: () => import('@/views/Videos/Series.vue'),
         },
         {
+            path: '/videos/files',
+            name: 'Videos Files',
+            component: () => import('@/views/Videos/Files.vue'),
+        },
+        {
+            path: '/videos/upload',
+            name: 'Videos Upload',
+            component: () => import('@/views/Videos/Upload.vue'),
+        },
+        {
             path: '/videos/watch/:video_id',
             name: 'Videos Watch',
             component: () => import('@/views/Videos/Watch.vue'),

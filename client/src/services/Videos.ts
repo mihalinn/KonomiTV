@@ -433,6 +433,61 @@ class Videos {
     }
 
     /**
+     * [改造] 録画フォルダ直下に空のフォルダを作成する (管理者のみ)
+     * @param folder 作成するフォルダ名
+     * @returns 作成したフォルダのフルパス、またはエラーメッセージ
+     */
+    static async createFolder(folder: string): Promise<{ path: string | null; error: string | null }> {
+
+        const response = await APIClient.post<{ name: string; path: string }>('/videos/folders', { folder });
+
+        if (response.type === 'error') {
+            const detail = response.data.detail;
+            return { path: null, error: typeof detail === 'string' && detail !== '' ? detail : 'フォルダを作成できませんでした。' };
+        }
+
+        return { path: response.data.path, error: null };
+    }
+
+
+    /**
+     * [改造] 録画フォルダ直下のフォルダの名前を変更する (管理者のみ・中の録画の ID は維持される)
+     * @param folder 変更前のフォルダ名
+     * @param new_folder 変更後のフォルダ名
+     * @returns 変更後のフォルダのフルパス、またはエラーメッセージ
+     */
+    static async renameFolder(folder: string, new_folder: string): Promise<{ path: string | null; error: string | null }> {
+
+        const response = await APIClient.post<{ name: string; path: string }>('/videos/folders/rename', { folder, new_folder });
+
+        if (response.type === 'error') {
+            const detail = response.data.detail;
+            return { path: null, error: typeof detail === 'string' && detail !== '' ? detail : 'フォルダ名を変更できませんでした。' };
+        }
+
+        return { path: response.data.path, error: null };
+    }
+
+
+    /**
+     * [改造] 録画フォルダ直下の空のフォルダを削除する (管理者のみ)
+     * @param folder 削除するフォルダ名
+     * @returns 成功した場合は null 、失敗した場合はエラーメッセージ
+     */
+    static async deleteFolder(folder: string): Promise<string | null> {
+
+        const response = await APIClient.post('/videos/folders/delete', { folder });
+
+        if (response.type === 'error') {
+            const detail = response.data.detail;
+            return typeof detail === 'string' && detail !== '' ? detail : 'フォルダを削除できませんでした。';
+        }
+
+        return null;
+    }
+
+
+    /**
      * [改造] 動画取り込みジョブの一覧を取得する (管理者のみ)
      * @returns ジョブの一覧。失敗した場合は null
      */

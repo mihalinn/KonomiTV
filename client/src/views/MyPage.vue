@@ -23,6 +23,14 @@
                         <Icon icon="fluent:settings-20-regular" width="26px" />
                         <span class="ml-4">設定</span>
                     </v-btn>
+                    <v-btn variant="flat" class="settings-navigation__button mt-3" to="/videos/files">
+                        <Icon icon="fluent:folder-arrow-right-20-regular" width="26px" />
+                        <span class="ml-4">ビデオ整理</span>
+                    </v-btn>
+                    <v-btn variant="flat" class="settings-navigation__button" to="/videos/upload">
+                        <Icon icon="fluent:arrow-upload-20-regular" width="26px" />
+                        <span class="ml-4">ビデオ追加</span>
+                    </v-btn>
                     <v-btn variant="flat" class="settings-navigation__button mt-3" to="/mylist/">
                         <Icon icon="ic:round-playlist-play" width="26px" />
                         <span class="ml-4">マイリスト</span>

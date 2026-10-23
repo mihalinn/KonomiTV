@@ -48,6 +48,24 @@
                         <Icon class="navigation__link-icon" icon="fluent:image-multiple-24-regular" width="26px" />
                         <span v-if="!iconOnly" class="navigation__link-text">キャプチャ</span>
                     </router-link>
+                    <router-link v-ripple class="navigation__link" active-class="navigation__link--active" to="/videos/files"
+                        :class="{
+                            'navigation__link--active': $route.path.startsWith('/videos/files'),
+                            'navigation__link--icon-only': iconOnly,
+                        }"
+                        v-ftooltip.right="iconOnly ? 'ビデオ整理' : ''">
+                        <Icon class="navigation__link-icon" icon="fluent:folder-arrow-right-20-regular" width="26px" />
+                        <span v-if="!iconOnly" class="navigation__link-text">ビデオ整理</span>
+                    </router-link>
+                    <router-link v-ripple class="navigation__link" active-class="navigation__link--active" to="/videos/upload"
+                        :class="{
+                            'navigation__link--active': $route.path.startsWith('/videos/upload'),
+                            'navigation__link--icon-only': iconOnly,
+                        }"
+                        v-ftooltip.right="iconOnly ? 'ビデオ追加' : ''">
+                        <Icon class="navigation__link-icon" icon="fluent:arrow-upload-20-regular" width="26px" />
+                        <span v-if="!iconOnly" class="navigation__link-text">ビデオ追加</span>
+                    </router-link>
                     <router-link v-ripple class="navigation__link" active-class="navigation__link--active" to="/mylist/"
                         :class="{
                             'navigation__link--active': $route.path.startsWith('/mylist'),
