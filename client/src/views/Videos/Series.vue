@@ -48,37 +48,7 @@
                         </template>
                     </template>
                     <template v-else>
-                        <div class="organize-bar" v-if="isAdmin && selectedPrograms.length > 0">
-                            <v-btn class="mr-2" variant="tonal" color="primary" size="small" @click="videoImportStore.open(importDefaultFolder)">
-                                <Icon icon="fluent:arrow-upload-20-regular" width="18px" height="18px" />
-                                <span class="ml-1">このシリーズにファイルを追加</span>
-                            </v-btn>
-                            <v-btn variant="tonal" color="primary" size="small" @click="toggleOrganize">
-                                <Icon icon="fluent:folder-arrow-right-20-regular" width="18px" height="18px" />
-                                <span class="ml-1">{{organizeMode ? '整理をやめる' : 'フォルダへ移動する'}}</span>
-                            </v-btn>
-                        </div>
-                        <div class="organize" v-if="organizeMode">
-                            <div class="organize__tools">
-                                <v-btn variant="text" size="small" @click="selectAll">すべて選択</v-btn>
-                                <v-btn variant="text" size="small" @click="selectedIds = []">選択解除</v-btn>
-                                <span class="organize__selected">{{selectedIds.length}}件 選択中</span>
-                                <v-btn class="ml-auto" variant="flat" color="primary" size="small"
-                                    :disabled="selectedIds.length === 0" @click="openMoveDialog">
-                                    <Icon icon="fluent:folder-arrow-right-20-regular" width="18px" height="18px" />
-                                    <span class="ml-1">{{selectedIds.length}}件をフォルダへ移動</span>
-                                </v-btn>
-                            </div>
-                            <label class="organize-item" v-for="program in selectedPrograms" :key="program.id">
-                                <input type="checkbox" :value="program.id" v-model="selectedIds">
-                                <img loading="lazy" decoding="async" :src="`${Utils.api_base_url}/videos/${program.id}/thumbnail`">
-                                <div class="organize-item__body">
-                                    <div class="organize-item__title">{{program.title}}</div>
-                                    <div class="organize-item__meta">{{formatDate(program.start_time)}} ・ {{baseFileName(program)}}</div>
-                                </div>
-                            </label>
-                        </div>
-                        <RecordedProgramList v-else
+                        <RecordedProgramList
                         :title="selectedName"
                         :programs="selectedPrograms"
                         :total="selectedPrograms.length"
@@ -93,62 +63,10 @@
         </main>
     </div>
 
-    <!-- [改造] フォルダ移動ダイアログ -->
-    <v-dialog v-model="showMoveDialog" max-width="560" :persistent="moving">
-        <v-card>
-            <v-card-title class="d-flex justify-center pt-6 font-weight-bold">
-                {{selectedIds.length}}件をフォルダへ移動
-            </v-card-title>
-            <v-card-text class="pt-2 pb-0">
-                <div class="text-body-2 text-text-darken-1 mb-3">
-                    フォルダ名を入力すると、近い既存のフォルダが下に出ます。選ぶか、そのまま新しい名前で作成できます。録画の情報・サムネイルはそのまま引き継がれます。
-                </div>
-                <v-text-field v-model="moveNewName" label="フォルダ名 (入力で絞り込み・なければ新規作成)" variant="outlined"
-                    density="comfortable" hide-details="auto" :counter="60" :disabled="moving" clearable
-                    :error-messages="moveNameError" />
-                <div class="text-body-2 mt-3" v-if="moveTargetName !== ''">
-                    移動先: <b>{{moveTargetName}}</b>
-                    <span class="text-text-darken-1">{{moveIsNewFolder ? '(新規作成)' : '(既存のフォルダ)'}}</span>
-                </div>
-                <div class="folder-candidates mt-3">
-                    <div class="folder-candidates__label">
-                        {{moveTargetName === '' ? '既存のフォルダ' : '近い既存のフォルダ'}} ({{folderCandidates.length}}件)
-                    </div>
-                    <div class="folder-candidates__empty" v-if="folderCandidates.length === 0">
-                        {{moveTargetName === '' ? '既存のフォルダはありません。' : '近い既存のフォルダはありません。この名前で新しく作成します。'}}
-                    </div>
-                    <div class="folder-candidates__list" v-else>
-                        <button type="button" v-for="name in folderCandidates" :key="name" class="folder-candidates__item"
-                            :class="{'folder-candidates__item--on': name === moveTargetName}" :disabled="moving"
-                            @click="moveNewName = name">
-                            <Icon icon="fluent:folder-20-regular" width="18px" height="18px" />
-                            <span>{{name}}</span>
-                        </button>
-                    </div>
-                </div>
-                <div class="move-progress mt-3" v-if="moving || moveFailures.length > 0">
-                    <div v-if="moving">移動中… {{moveDone}} / {{moveTotal}}</div>
-                    <div v-for="failure in moveFailures" :key="failure.id" class="move-progress__error">
-                        {{failure.title}}: {{failure.message}}
-                    </div>
-                </div>
-            </v-card-text>
-            <v-card-actions class="pt-4 px-6 pb-6">
-                <v-spacer></v-spacer>
-                <v-btn color="text" variant="text" :disabled="moving" @click="showMoveDialog = false">閉じる</v-btn>
-                <v-btn class="px-3" color="primary" variant="flat" :disabled="moving || moveTargetName === '' || moveNameError !== ''"
-                    @click="executeMove">
-                    <Icon icon="fluent:folder-arrow-right-20-regular" width="18px" height="18px" />
-                    <span class="ml-1">移動する</span>
-                </v-btn>
-            </v-card-actions>
-        </v-card>
-    </v-dialog>
-
 </template>
 <script lang="ts" setup>
 
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 
 import Breadcrumbs from '@/components/Breadcrumbs.vue';
@@ -156,12 +74,8 @@ import HeaderBar from '@/components/HeaderBar.vue';
 import Navigation from '@/components/Navigation.vue';
 import SPHeaderBar from '@/components/SPHeaderBar.vue';
 import RecordedProgramList from '@/components/Videos/RecordedProgramList.vue';
-import Message from '@/message';
-import { makeSeriesTitle } from '@/services/SeriesTitle';
 import { IRecordedProgram } from '@/services/Videos';
 import Videos from '@/services/Videos';
-import useUserStore from '@/stores/UserStore';
-import useVideoImportStore from '@/stores/VideoImportStore';
 import Utils from '@/utils';
 
 interface IFolder {
@@ -307,144 +221,7 @@ const fetchAll = async () => {
     is_loading.value = false;
 };
 
-// ---- [改造] 録画ファイルの手動フォルダ移動 (管理者のみ) ----
-
-const userStore = useUserStore();
-const isAdmin = computed(() => userStore.user?.is_admin === true);
-
-const organizeMode = ref(false);
-const selectedIds = ref<number[]>([]);
-
-const baseFileName = (program: IRecordedProgram): string => {
-    const path = program.recorded_video.file_path;
-    return path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
-};
-
-const toggleOrganize = () => {
-    organizeMode.value = !organizeMode.value;
-    selectedIds.value = [];
-};
-
-const selectAll = () => {
-    selectedIds.value = selectedPrograms.value.map(p => p.id);
-};
-
-const showMoveDialog = ref(false);
-const moving = ref(false);
-const moveDone = ref(0);
-const moveTotal = ref(0);
-const moveFailures = ref<{ id: number; title: string; message: string }[]>([]);
-const existingFolders = ref<string[]>([]);
-const moveNewName = ref('');
-
-// フォルダ名に使えない文字 (サーバー側の検証と同じ: \ / : * ? " < > | と制御文字)
-const INVALID_FOLDER_CHARS = '\\/:*?"<>|';
-const hasInvalidFolderChar = (c: string): boolean => INVALID_FOLDER_CHARS.includes(c) || c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127;
-
-// 選んだ番組から付けるべきフォルダ名を提案する (サーバーの自動仕分けと同じ規則)
-const suggestFolderName = (): string => {
-    const first = selectedPrograms.value.find(p => selectedIds.value.includes(p.id));
-    if (!first) return '';
-    const name = makeSeriesTitle(first.series_title ?? first.title);
-    return Array.from(name).map(c => hasInvalidFolderChar(c) ? ' ' : c).join('').replace(/\s+/g, ' ').trim().replace(/\.+$/, '').slice(0, 60).trim();
-};
-
-const moveTargetName = computed(() => moveNewName.value.trim());
-const moveIsNewFolder = computed(() => moveTargetName.value !== '' && !existingFolders.value.includes(moveTargetName.value));
-
-const moveNameError = computed(() => {
-    const name = moveTargetName.value;
-    if (name === '') return '';
-    if (name.length > 60) return '60文字までです。';
-    if (Array.from(name).some(hasInvalidFolderChar)) return '使えない文字が含まれています。(\\ / : * ? " < > |)';
-    if (name === '.' || name === '..' || name.endsWith('.')) return '末尾にドットは使えません。';
-    return '';
-});
-
-// 既存フォルダの検索用に表記ゆれ (全角半角・大文字小文字・カタカナ/ひらがな・空白記号) をならす
-const normalizeForSearch = (s: string): string => Array.from(s.normalize('NFKC').toLowerCase())
-    .map(c => {
-        const code = c.charCodeAt(0);
-        return code >= 0x30a1 && code <= 0x30f6 ? String.fromCharCode(code - 0x60) : c;
-    })
-    .join('')
-    .replace(/[\s・!?~〜]/g, '');
-
-// 入力名に近い既存フォルダ (完全一致 → 前方一致 → 部分一致の順)。入力が空なら全件
-const folderCandidates = computed(() => {
-    const q = normalizeForSearch(moveNewName.value);
-    const scored: { name: string; rank: number }[] = [];
-    for (const name of existingFolders.value) {
-        const n = normalizeForSearch(name);
-        let rank = -1;
-        if (q === '') rank = 3;
-        else if (n === '') rank = -1;
-        else if (n === q) rank = 0;
-        else if (n.startsWith(q) || q.startsWith(n)) rank = 1;
-        else if (n.includes(q) || (n.length >= 2 && q.includes(n))) rank = 2;
-        if (rank >= 0) scored.push({ name, rank });
-    }
-    scored.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name, 'ja'));
-    return scored.map(s => s.name);
-});
-
-const openMoveDialog = async () => {
-    moveFailures.value = [];
-    moveNewName.value = suggestFolderName();
-    const result = await Videos.fetchFolders();
-    existingFolders.value = result ? result.map(f => f.name) : [];
-    showMoveDialog.value = true;
-};
-
-const executeMove = async () => {
-    const target = moveTargetName.value;
-    if (target === '' || moveNameError.value !== '') return;
-    const targets = selectedPrograms.value.filter(p => selectedIds.value.includes(p.id));
-    moving.value = true;
-    moveDone.value = 0;
-    moveTotal.value = targets.length;
-    moveFailures.value = [];
-    const succeeded: number[] = [];
-    for (const program of targets) {
-        const error = await Videos.moveVideo(program.id, target);
-        if (error === null) {
-            succeeded.push(program.id);
-        } else {
-            moveFailures.value.push({ id: program.id, title: program.title, message: error });
-        }
-        moveDone.value++;
-    }
-    moving.value = false;
-
-    // 移動に成功した分は選択から外して一覧を取り直す
-    selectedIds.value = selectedIds.value.filter(id => !succeeded.includes(id));
-    if (succeeded.length > 0) await fetchAll();
-
-    if (moveFailures.value.length === 0) {
-        showMoveDialog.value = false;
-        Message.success(`${succeeded.length}件を「${target}」へ移動しました。`);
-    } else if (succeeded.length > 0) {
-        Message.warning(`${succeeded.length}件を移動しました。${moveFailures.value.length}件は失敗しました。`);
-    } else {
-        Message.error('移動できませんでした。');
-    }
-};
-
-// ---- [改造] ファイルのアップロード取り込み (管理者のみ) ----
-
-const videoImportStore = useVideoImportStore();
-const importDefaultFolder = computed(() => {
-    if (selectedFolder.value === null || selectedFolder.value === UNSORTED_KEY) return '';
-    return baseName(selectedFolder.value);
-});
-
-// 取り込みが完了したら一覧を読み込み直す
-watch(() => videoImportStore.importedCount, () => {
-    fetchAll();
-});
-
 onMounted(async () => {
-    await userStore.fetchUser();
     await fetchAll();
 });
 
@@ -502,125 +279,6 @@ onMounted(async () => {
         padding: 40px 0;
         text-align: center;
         color: rgb(var(--v-theme-text-darken-1));
-    }
-}
-
-.organize-bar {
-    display: flex;
-    justify-content: flex-end;
-    padding-bottom: 10px;
-}
-
-.organize {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    &__tools {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 4px;
-        padding: 8px 0;
-    }
-    &__selected {
-        margin-left: 8px;
-        font-size: 13px;
-        color: rgb(var(--v-theme-text-darken-1));
-    }
-}
-
-.organize-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
-    border-radius: 8px;
-    cursor: pointer;
-    background: rgb(var(--v-theme-background-lighten-1));
-    &:hover {
-        background: rgb(var(--v-theme-background-lighten-2));
-    }
-    input[type='checkbox'] {
-        flex: none;
-        width: 20px;
-        height: 20px;
-        accent-color: rgb(var(--v-theme-primary));
-    }
-    img {
-        flex: none;
-        width: 112px;
-        aspect-ratio: 16 / 9;
-        object-fit: cover;
-        border-radius: 6px;
-        background: rgb(var(--v-theme-background-lighten-2));
-    }
-    &__body {
-        min-width: 0;
-        flex: 1;
-    }
-    &__title {
-        font-size: 14px;
-        font-weight: 700;
-        line-height: 1.4;
-        word-break: break-all;
-    }
-    &__meta {
-        margin-top: 2px;
-        font-size: 12px;
-        color: rgb(var(--v-theme-text-darken-1));
-        word-break: break-all;
-    }
-}
-
-.folder-candidates {
-    &__label {
-        margin-bottom: 6px;
-        font-size: 12px;
-        font-weight: 700;
-        color: rgb(var(--v-theme-text-darken-1));
-    }
-    &__empty {
-        padding: 8px 0;
-        font-size: 13px;
-        color: rgb(var(--v-theme-text-darken-1));
-    }
-    &__list {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        max-height: 240px;
-        overflow-y: auto;
-    }
-    &__item {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        padding: 8px 12px;
-        border: none;
-        border-radius: 8px;
-        text-align: left;
-        font-size: 14px;
-        cursor: pointer;
-        color: rgb(var(--v-theme-text));
-        background: rgb(var(--v-theme-background-lighten-1));
-        word-break: break-all;
-        &:hover {
-            background: rgb(var(--v-theme-background-lighten-2));
-        }
-        &--on {
-            font-weight: 700;
-            box-shadow: inset 3px 0 0 rgb(var(--v-theme-primary));
-        }
-    }
-}
-
-
-.move-progress {
-    font-size: 13px;
-    &__error {
-        color: rgb(var(--v-theme-error));
-        word-break: break-all;
     }
 }
 

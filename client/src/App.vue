@@ -4,18 +4,11 @@
             <component :is="Component" />
         </router-view>
         <Snackbars />
-        <!-- [改造] ファイルのアップロード取り込みダイアログ (どのページからでも開ける) -->
-        <VideoImportDialog v-model="videoImportStore.show" :initialFolder="videoImportStore.initialFolder"
-            @imported="videoImportStore.notifyImported()" />
     </v-app>
 </template>
 <script lang="ts" setup>
 
 import Snackbars from '@/components/Snackbars.vue';
-import VideoImportDialog from '@/components/Videos/VideoImportDialog.vue';
-import useVideoImportStore from '@/stores/VideoImportStore';
-
-const videoImportStore = useVideoImportStore();
 
 </script>
 <style lang="scss">
