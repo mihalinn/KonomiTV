@@ -4,7 +4,7 @@ import re
 from typing import ClassVar, Literal, cast
 
 from ariblib.aribstr import AribString
-from tortoise import Tortoise, connections
+from tortoise import Tortoise
 from tortoise.exceptions import ConfigurationError
 from tortoise.expressions import Q
 
@@ -595,9 +595,6 @@ class TSInformation:
             cleanup_required = False
             if multiprocessing.current_process().name != 'MainProcess':
                 # マルチプロセス時は問答無用でデータベース接続を初期化する
-                ## Windows だと既存のコネクションを破棄せずとも接続を初期化すれば良いが、Linux では必ず破棄してから初期化する必要があったはず
-                ## おそらくマルチプロセス時に変数の状態こそ fork 先に引き継がれるが、コネクション自体は正しく引き継がれない (?) のが原因
-                connections.discard('default')
                 await Tortoise.init(config=DATABASE_CONFIG)
                 cleanup_required = True
             else:
@@ -607,7 +604,6 @@ class TSInformation:
                     # コネクションが取得できても実際は使えない可能性があるのでテスト
                     await conn.execute_query('SELECT 1')
                 except (ConfigurationError, Exception):
-                    connections.discard('default')
                     await Tortoise.init(config=DATABASE_CONFIG)
                     cleanup_required = True
 
@@ -617,16 +613,18 @@ class TSInformation:
             ## ex: tvk1 (gr031) / NHK総合1・福岡 (gr031)
             ## ここでは gr011 に対して gr011 / gr011-1 / gr011-2 ... をまとめて取得し、
             ## 既存の枝番も考慮したうえで次に空いている枝番を決定する
-            same_channel_numbers = cast(list[str], await Channel.filter(
-                ~(Q(network_id=network_id) & Q(service_id=service_id)),  # network_id と service_id の組み合わせが異なる
-                Q(channel_number=channel_number) | Q(channel_number__startswith=f'{channel_number}-'),
-                type='GR',  # 地デジのみ
-            ).values_list('channel_number', flat=True))
+            try:
+                same_channel_numbers = cast(list[str], await Channel.filter(
+                    ~(Q(network_id=network_id) & Q(service_id=service_id)),  # network_id と service_id の組み合わせが異なる
+                    Q(channel_number=channel_number) | Q(channel_number__startswith=f'{channel_number}-'),
+                    type='GR',  # 地デジのみ
+                ).values_list('channel_number', flat=True))
 
-            # Tortoise ORM を独自に初期化した場合は、開いた Tortoise ORM のコネクションを明示的に閉じる
+            # Tortoise ORM を独自に初期化した場合は、取得に失敗したときも含めて、開いた Tortoise ORM のコネクションを明示的に閉じる
             # コネクションを閉じないと Ctrl+C を押下しても終了できない
-            if cleanup_required is True:
-                await Tortoise.close_connections()
+            finally:
+                if cleanup_required is True:
+                    await Tortoise.close_connections()
 
             # 異なる NID-SID で同じベースチャンネル番号のサービスが複数ある場合、枝番をつける
             ## 以前はベース番号と完全一致するレコード数だけを数えていたため、
@@ -659,8 +657,61 @@ class TSInformation:
 
 
     @staticmethod
+    def calculateSubchannelParentServiceID(type: Literal['GR', 'BS', 'CS', 'CATV', 'SKY', 'BS4K'], service_id: int) -> int | None:
+        """
+        サブチャンネルの親サービス ID を算出する
+
+        Args:
+            type (Literal['GR', 'BS', 'CS', 'CATV', 'SKY', 'BS4K']): チャンネル種別
+            service_id (int): サービス ID
+
+        Returns:
+            int | None: 親サービス ID (親子関係を決め打ちできない場合は None)
+        """
+
+        # 現状は BS のみ TSID なしでも親子関係を決め打ちできる
+        ## Mirakurun の /api/services は TSID を返さないため、BS のサブチャンネル表示では
+        ## サービス ID から親サービスを補える範囲だけを同じマルチ編成として扱う
+        if type != 'BS':
+            return None
+
+        # NHK BS
+        if service_id == 102:
+            return 101
+        if service_id == 104:
+            return 103
+
+        # 民放系 BS のマルチ編成
+        if 142 <= service_id <= 149:
+            return 141
+        if 152 <= service_id <= 159:
+            return 151
+        if 162 <= service_id <= 169:
+            return 161
+        if 172 <= service_id <= 179:
+            return 171
+        if 182 <= service_id <= 189:
+            return 181
+
+        # 放送大学テレビ
+        if service_id in [232, 233]:
+            return 231
+
+        return None
+
+
+    @staticmethod
     def calculateIsSubchannel(type: Literal['GR', 'BS', 'CS', 'CATV', 'SKY', 'BS4K'], service_id: int) -> bool:
-        """ チャンネルがサブチャンネルかどうかを算出する """
+        """
+        チャンネルがサブチャンネルかどうかを算出する
+
+        Args:
+            type (Literal['GR', 'BS', 'CS', 'CATV', 'SKY', 'BS4K']): チャンネル種別
+            service_id (int): サービス ID
+
+        Returns:
+            bool: サブチャンネルかどうか
+        """
 
         # 地デジ: サービス ID に 0x0187 を AND 演算（ビットマスク）した時に 0 でない場合
         ## 地デジのサービス ID は、ARIB TR-B14 第五分冊 第七編 9.1 によると
