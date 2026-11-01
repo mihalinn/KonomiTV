@@ -7,6 +7,8 @@
 >   - 画像側のモデルは OpenAI CLIP (ViT-B/32、MIT ライセンス) を ONNX にしたもの、判定側は独自の学習結果です。詳しくは [ThirdPartyNotices-CMModel.md](ThirdPartyNotices-CMModel.md) をご覧ください。
 > - 本家の `config.example.yaml` に、`cm_detection` の設定を足してあります。
 >
+> **インストール方法は [FORK-INSTALL.md](FORK-INSTALL.md) をご覧ください。** 本家のインストーラーでは、この改造版は入りません。
+>
 > 以降は本家の README です。
 
 
