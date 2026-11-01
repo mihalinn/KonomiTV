@@ -946,6 +946,8 @@ class CMAnalysisStatus(BaseModel):
     model_ready: bool
     model_downloadable: bool
     model_version: str
+    model_installed_version: str | None
+    model_update_available: bool
     model_download: CMModelDownloadStatus
     pending_count: int
     running_count: int

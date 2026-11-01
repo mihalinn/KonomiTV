@@ -16,7 +16,10 @@ from app.constants import (
     API_REQUEST_HEADERS,
     CM_DETECTION_MODEL_BASE_URL,
     CM_DETECTION_MODEL_DIR,
+    CM_DETECTION_MODEL_FILE_BASE_URLS,
     CM_DETECTION_MODEL_FILES,
+    CM_DETECTION_MODEL_HISTORY,
+    CM_DETECTION_MODEL_VERSION,
     LIBRARY_PATH,
 )
 from app.metadata.CMFeatureExtractor import CMFeatureExtractor
@@ -34,6 +37,11 @@ class CMModelDetector:
     # 読み込み済みの ONNX セッションのキャッシュ (キー: (デバイス, スレッド数))
     _sessions: ClassVar[dict[tuple[str, int], tuple[Any, Any]]] = {}
     _sessions_lock: ClassVar[threading.Lock] = threading.Lock()
+
+    # 配置済みのモデルファイルの SHA-256 のキャッシュ (キー: ファイル名、値: (更新日時, サイズ, SHA-256))
+    # 数百 MB のファイルなので、更新日時とサイズが変わらない限り計算し直さない
+    _hash_cache: ClassVar[dict[str, tuple[int, int, str]]] = {}
+    _hash_lock: ClassVar[threading.Lock] = threading.Lock()
 
     # モデルのダウンロード状況
     download_status: ClassVar[schemas.CMModelDownloadStatus] = schemas.CMModelDownloadStatus(
@@ -55,6 +63,63 @@ class CMModelDetector:
         """ モデルのダウンロード元が設定されているかどうか """
 
         return CM_DETECTION_MODEL_BASE_URL != ''
+
+
+    @classmethod
+    def _getFileSHA256(cls, name: str) -> str | None:
+        """ 配置済みのモデルファイルの SHA-256 を返す。ファイルがなければ None (同期関数なので、呼び出し側で別スレッドで実行すること) """
+
+        path = CM_DETECTION_MODEL_DIR / name
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+        with cls._hash_lock:
+            cached = cls._hash_cache.get(name)
+            if cached is not None and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+                return cached[2]
+        sha256 = hashlib.sha256()
+        try:
+            with open(path, 'rb') as file:
+                for chunk in iter(lambda: file.read(1024 * 1024), b''):
+                    sha256.update(chunk)
+        except OSError:
+            return None
+        digest = sha256.hexdigest()
+        with cls._hash_lock:
+            cls._hash_cache[name] = (stat.st_mtime_ns, stat.st_size, digest)
+        return digest
+
+
+    @classmethod
+    def getInstalledVersion(cls) -> str | None:
+        """
+        配置済みのモデルが、これまでに配布したどのバージョンと一致するかを返す
+        どれにも一致しない (手動で置いた独自のモデルなど) 場合や、モデルがない場合は None
+        数百 MB のファイルのハッシュを初回だけ計算するため、同期関数として実装している (呼び出し側で別スレッドで実行すること)
+        """
+
+        versions = dict(CM_DETECTION_MODEL_HISTORY)
+        versions.setdefault(CM_DETECTION_MODEL_VERSION, dict(CM_DETECTION_MODEL_FILES))
+        # 新しいバージョンから順に調べる
+        for version, files in reversed(list(versions.items())):
+            if all(cls._getFileSHA256(name) == sha256 for name, sha256 in files.items()):
+                return version
+        return None
+
+
+    @classmethod
+    def isUpdateAvailable(cls) -> bool:
+        """
+        配布元に、配置済みのモデルよりも新しいバージョンのモデルがあるかどうか
+        過去に配布したバージョンのモデルが配置されているときだけ True になる (手動で置いた独自のモデルを上書きするよう案内しないため)
+        同期関数として実装している (呼び出し側で別スレッドで実行すること)
+        """
+
+        if not cls.isModelReady() or not cls.isDownloadable():
+            return False
+        installed_version = cls.getInstalledVersion()
+        return installed_version is not None and installed_version != CM_DETECTION_MODEL_VERSION
 
 
     @staticmethod
@@ -257,7 +322,7 @@ class CMModelDetector:
                     if await destination.is_file() and await cls.__sha256(destination) == expected_sha256:
                         continue
                     sha256 = hashlib.sha256()
-                    async with client.stream('GET', f'{CM_DETECTION_MODEL_BASE_URL}/{name}') as response:
+                    async with client.stream('GET', f'{CM_DETECTION_MODEL_FILE_BASE_URLS.get(name, CM_DETECTION_MODEL_BASE_URL)}/{name}') as response:
                         response.raise_for_status()
                         total = int(response.headers.get('content-length', '0'))
                         received = 0
@@ -276,6 +341,8 @@ class CMModelDetector:
                         await temp_path.unlink(missing_ok=True)
                         raise RuntimeError(f'{name} のハッシュ値が一致しません')
                     await temp_path.replace(destination)
+            cls.unload()
+            # 新しいモデルに更新された場合に備え、読み込み済みの古いモデルを破棄する (次の解析で新しいモデルを読み込み直す)
             cls.unload()
             cls.download_status = schemas.CMModelDownloadStatus(state='Completed', progress=1.0, message='')
             logging.info('[CMModelDetector] CM detection models downloaded.')

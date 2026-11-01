@@ -14,6 +14,8 @@ export interface ICMAnalysisStatus {
     model_ready: boolean;
     model_downloadable: boolean;
     model_version: string;
+    model_installed_version: string | null;
+    model_update_available: boolean;
     model_download: {
         state: 'Idle' | 'Downloading' | 'Completed' | 'Failed';
         progress: number;

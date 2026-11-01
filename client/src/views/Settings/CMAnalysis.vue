@@ -80,6 +80,12 @@
                 <div class="settings__item-label">
                     <template v-if="status.model_ready">
                         モデルファイルは準備できています。<br>
+                        <template v-if="status.model_installed_version !== null">
+                            現在のモデル: AI {{status.model_installed_version}}<br>
+                        </template>
+                        <template v-if="status.model_update_available">
+                            <strong>新しいモデル (AI {{status.model_version}}) があります。</strong>「モデルを更新」を押すと入れ替わります。<br>
+                        </template>
                     </template>
                     <template v-else>
                         <span class="text-error-lighten-1">モデルファイルが見つかりません。</span>
@@ -93,11 +99,11 @@
                     </template>
                 </div>
                 <v-btn class="settings__save-button mt-3" variant="flat" color="secondary"
-                    v-if="!status.model_ready && status.model_downloadable"
+                    v-if="(!status.model_ready || status.model_update_available) && status.model_downloadable"
                     :disabled="status.model_download.state === 'Downloading'"
                     @click="downloadModel()">
                     <Icon icon="fluent:arrow-download-24-regular" height="20px" />
-                    <span class="ml-2">モデルをダウンロード</span>
+                    <span class="ml-2">{{status.model_update_available ? 'モデルを更新' : 'モデルをダウンロード'}}</span>
                 </v-btn>
             </div>
             <v-btn class="settings__save-button mt-5" color="secondary" variant="flat"

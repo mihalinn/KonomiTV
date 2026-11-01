@@ -12,7 +12,6 @@ import typer
 
 from app import logging, schemas
 from app.config import Config, LoadConfig
-from app.constants import CM_DETECTION_MODEL_VERSION
 from app.metadata.CMModelDetector import CMModelDetector
 from app.models.RecordedVideo import RecordedVideo
 
@@ -102,7 +101,9 @@ class CMSectionsDetector:
         cm_sections = await self.__detectFromChapterFile()
         analysis_version = 'チャプター'
         if not cm_sections:
-            analysis_version = f'AI {CM_DETECTION_MODEL_VERSION}'
+            # 実際に配置されているモデルのバージョンを記録する (モデルの更新前に、新しいバージョンで解析したと記録しないため)
+            installed_version = await asyncio.to_thread(CMModelDetector.getInstalledVersion)
+            analysis_version = f'AI {installed_version}' if installed_version is not None else 'AI (独自モデル)'
             cm_sections = await asyncio.to_thread(
                 CMModelDetector.detect, str(self.file_path), float(self.duration_sec), device, threads, should_stop, on_progress,
             )

@@ -1,4 +1,5 @@
 
+import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, Query, status
@@ -35,6 +36,8 @@ def BuildStatus() -> schemas.CMAnalysisStatus:
         model_ready = CMModelDetector.isModelReady(),
         model_downloadable = CMModelDetector.isDownloadable(),
         model_version = CM_DETECTION_MODEL_VERSION,
+        model_installed_version = CMModelDetector.getInstalledVersion(),
+        model_update_available = CMModelDetector.isUpdateAvailable(),
         model_download = CMModelDetector.download_status,
         pending_count = len([job for job in jobs if job.state == 'Pending']),
         running_count = len([job for job in jobs if job.state == 'Running']),
@@ -55,7 +58,8 @@ async def CMAnalysisStatusAPI(
     JWT エンコードされたアクセストークンがリクエストの Authorization: Bearer に設定されていないとアクセスできない。
     """
 
-    return BuildStatus()
+    # モデルファイルのハッシュ計算 (初回のみ数秒) でイベントループを止めないよう、別スレッドで組み立てる
+    return await asyncio.to_thread(BuildStatus)
 
 
 @router.put(
@@ -80,7 +84,8 @@ async def CMAnalysisSettingsUpdateAPI(
         CMAnalysisQueue.cancel()
     # デバイスやスレッド数が変わった場合に備え、次回の解析で読み込み直す
     CMModelDetector.unload()
-    return BuildStatus()
+    # モデルファイルのハッシュ計算 (初回のみ数秒) でイベントループを止めないよう、別スレッドで組み立てる
+    return await asyncio.to_thread(BuildStatus)
 
 
 @router.post(

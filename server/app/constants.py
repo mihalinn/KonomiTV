@@ -59,6 +59,18 @@ CM_DETECTION_MODEL_FILES: dict[str, str] = {
     'clip_image.onnx': '947d8fd6aeca5ff6907578a0700d835b779843c6d18d09c677e9f4b9d70d25a1',
     'cm_seq.onnx': '4cda80ae01bd947cdc4e99dbb77e025f50460c428408cf099caf79c89b941753',
 }
+## ファイルごとにダウンロード元を変えたいとき (モデルの一部だけを更新したリリースなど) の上書き。キーはファイル名、値は末尾スラッシュなしの URL
+## ここに書かれていないファイルは、CM_DETECTION_MODEL_BASE_URL からダウンロードする
+CM_DETECTION_MODEL_FILE_BASE_URLS: dict[str, str] = {}
+## これまでに配布したモデルのバージョンごとの SHA-256 ハッシュ値 (最新版を含む)
+## 配置済みのモデルがどのバージョンのものかを判別し、新しいバージョンがあるときに画面で更新を案内するために使う
+## 新しいバージョンを出すときは、これまでの行を残したまま、新しいバージョンの行を足すこと
+CM_DETECTION_MODEL_HISTORY: dict[str, dict[str, str]] = {
+    '1.1': {
+        'clip_image.onnx': '947d8fd6aeca5ff6907578a0700d835b779843c6d18d09c677e9f4b9d70d25a1',
+        'cm_seq.onnx': '4cda80ae01bd947cdc4e99dbb77e025f50460c428408cf099caf79c89b941753',
+    },
+}
 
 # スタティックディレクトリ
 STATIC_DIR = BASE_DIR / 'static'
