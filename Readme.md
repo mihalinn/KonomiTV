@@ -1,3 +1,14 @@
+> **これは [tsukumijima/KonomiTV](https://github.com/tsukumijima/KonomiTV) をもとにした、個人の改造版です。** 本家が基準で、本家の機能はそのまま残しています。以下の機能を足しました。まだ荒削りで、使いやすさや UI は整っておらず、動作の保証はありません。本家 0.15.0-dev (2026-10-28 時点の master) を土台にしています。
+>
+> - **ビデオ整理 / ビデオ追加**: 録画をフォルダに分けて整理するページと、手元の動画ファイルを取り込むページ
+> - **シリーズ別の一覧、毎週録画の条件ページ、番組表のジャンル一覧**
+> - **CM 区間の AI 検出**: 録画の CM を自動で見つけます。再生画面で CM のスキップボタンと自動スキップが使え、シークバーが CM の部分だけ色分けされます。
+>   - 使うには、「設定」→「CM 解析設定」→「モデルをダウンロード」で、モデル (約 370MB) を取得してください。ONNX Runtime で動き、NVIDIA GPU があれば CUDA で速くなります。
+>   - 画像側のモデルは OpenAI CLIP (ViT-B/32、MIT ライセンス) を ONNX にしたもの、判定側は独自の学習結果です。詳しくは [ThirdPartyNotices-CMModel.md](ThirdPartyNotices-CMModel.md) をご覧ください。
+> - 本家の `config.example.yaml` に、`cm_detection` の設定を足してあります。
+>
+> 以降は本家の README です。
+
 
 # <img width="350" src="https://user-images.githubusercontent.com/39271166/134050201-8110f076-a939-4b62-8c86-7beaa3d4728c.png" alt="KonomiTV Logo">　<!-- omit in toc -->
 

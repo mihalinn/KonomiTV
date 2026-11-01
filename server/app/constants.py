@@ -53,7 +53,7 @@ CM_DETECTION_MODEL_DIR = DATA_DIR / 'cm-detection-models'
 ## CM 区間検出 AI のバージョン (録画ごとに「どのバージョンで解析したか」を記録して画面に表示する。モデルを更新したら上げる)
 CM_DETECTION_MODEL_VERSION = '1.1'
 ## CM 区間検出 AI のモデルファイルのダウンロード元 (末尾スラッシュなし)。空文字の場合はダウンロード機能を使わず、手動配置のみとなる
-CM_DETECTION_MODEL_BASE_URL = ''
+CM_DETECTION_MODEL_BASE_URL = 'https://github.com/mihalinn/KonomiTV/releases/download/cm-model-v1.1'
 ## CM 区間検出 AI のモデルファイル名と SHA-256 ハッシュ値
 CM_DETECTION_MODEL_FILES: dict[str, str] = {
     'clip_image.onnx': '947d8fd6aeca5ff6907578a0700d835b779843c6d18d09c677e9f4b9d70d25a1',
